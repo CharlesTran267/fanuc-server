@@ -1,0 +1,72 @@
+PROGRAM EUK_MON_SRV
+%STACKSIZE = 4000
+%NOLOCKGROUP
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%ALPHABETIZE
+%COMMENT = 'EUREKA MOTION SERVER V0.0.1'
+
+VAR
+	comm_file:	FILE
+	req:		STRING[254]
+	rsp:	STRING[254]
+	keep_conn:	BOOLEAN
+	status:		INTEGER
+	
+CONST
+	SERVER_TAG = 'S7:'
+	PORT_NUMBER = 18734
+	
+	MSG_DEL = ';'
+	VAL_DEL = ','
+	
+	SUCCESS = '0'
+	FAILED = '1'
+
+
+%INCLUDE socket_server
+%INCLUDE eureka_application
+
+BEGIN
+	
+	WRITE('STARTING EUREKA MOTION SERVER.', CR);
+
+	SET_INT_REG(82, 100, status)
+    IF status <> 0 THEN
+        WRITE('Failed to set default value for accel register R[82] = 100', CR);
+    ENDIF
+
+	WHILE TRUE DO
+		
+		-- start server communication
+		START_SERVER(comm_file,SERVER_TAG, PORT_NUMBER);
+		
+		keep_conn = TRUE;
+		
+		WHILE keep_conn DO
+		
+			READ comm_file(req);
+			
+			IF UNINIT(req) THEN
+				GOTO new_conn
+			ENDIF
+			
+			WRITE ('Recieved  from client : ', req, CR)
+			
+			HND_REQ(req, rsp);
+			
+			WRITE ('Sending to client : ', rsp, CR)
+			
+			WRITE comm_file(rsp);
+			
+			keep_conn = (req <> 'END');
+		ENDWHILE
+		
+		NEW_CONN::
+		
+		WRITE('STOPPING EUREKA MOTION SERVER.', CR);
+		STOP_SERVER(comm_file, SERVER_TAG);
+	
+	ENDWHILE
+
+	
+END EUK_MON_SRV	

@@ -1,0 +1,1124 @@
+ROUTINE BREAKDWN_REQ(req: STRING; req_array_sz: INTEGER; req_array:	ARRAY OF STRING; delimiter: STRING)
+VAR
+    stop_index:             INTEGER
+    req_len:         INTEGER
+    sub_str_len:      INTEGER
+    sub_str_buf:      STRING[64]
+    rem_str_len:      INTEGER
+    rem_str_buf:      STRING[254]
+
+    temp:                   STRING[4]
+BEGIN
+
+    req_array_sz = 0
+    rem_str_buf = req
+    rem_str_len = STR_LEN(req)
+    WHILE rem_str_len <> 0 DO
+     req_array_sz = req_array_sz + 1
+     stop_index = INDEX(rem_str_buf, delimiter)
+     IF stop_index = 0 THEN
+        req_array[req_array_sz] = rem_str_buf
+        RETURN
+     ENDIF
+     sub_str_len = stop_index - 1
+     req_array[req_array_sz] = SUB_STR(rem_str_buf, 1, sub_str_len)
+     rem_str_len = rem_str_len - stop_index
+     rem_str_buf = SUB_STR(rem_str_buf, stop_index + 1, rem_str_len)
+    ENDWHILE
+    
+END BREAKDWN_REQ
+
+ROUTINE BKD_RBT_POSE(pose_str: STRING; conf_str: STRING; out_pose_xyz: XYZWPREXT; err_str: STRING) : BOOLEAN
+VAR
+    status:             INTEGER
+    entry:              INTEGER
+
+    in_pos_str:           ARRAY[6] OF STRING[16]
+    in_pos_cnt:           INTEGER
+BEGIN
+
+    WRITE('Processing Pose Configuration :', pose_str, CR);
+    BREAKDWN_REQ(pose_str, in_pos_cnt, in_pos_str, VAL_DEL)
+
+    IF in_pos_cnt <> 6 THEN
+        err_str = 'Insufficient number of values provided for tool frame'
+        RETURN(FALSE)
+    ENDIF
+
+    CNV_STR_REAL(in_pos_str[1], out_pose_xyz.x)
+    CNV_STR_REAL(in_pos_str[2], out_pose_xyz.y)
+    CNV_STR_REAL(in_pos_str[3], out_pose_xyz.z)
+    CNV_STR_REAL(in_pos_str[4], out_pose_xyz.w)
+    CNV_STR_REAL(in_pos_str[5], out_pose_xyz.p)
+    CNV_STR_REAL(in_pos_str[6], out_pose_xyz.r)
+
+    CNV_STR_CONF(conf_str, out_pose_xyz.config_data, status)
+    IF status <> 0 THEN
+        err_str = 'Frame Pose config invalid format'
+        RETURN(FALSE)
+    ENDIF
+
+    RETURN(TRUE)
+
+END BKD_RBT_POSE
+
+ROUTINE BKD_JOINT(joint_str: STRING; joints: JOINTPOS; err_str: STRING) : BOOLEAN
+VAR
+    status:             INTEGER
+    entry:              INTEGER
+
+    in_jnt_str:           ARRAY[9] OF STRING[16]
+    in_jnt_rel:       ARRAY[9] OF REAL
+    in_jnt_cnt:           INTEGER
+
+    i:  INTEGER
+BEGIN
+
+    WRITE('Processing Joint Configuration :', joint_str, CR);
+    BREAKDWN_REQ(joint_str, in_jnt_cnt, in_jnt_str, VAL_DEL)
+
+    FOR i=1 TO 9 DO
+        IF UNINIT(in_jnt_str[i]) THEN
+        in_jnt_rel[i] = 0.0
+        ELSE
+        WRITE('Conevting str value : ',  in_jnt_str[i],  CR);
+        CNV_STR_REAL(in_jnt_str[i], in_jnt_rel[i])
+        ENDIF
+    ENDFOR
+
+    WRITE('Converting real joint values to joint type', CR)
+    CNV_REL_JPOS(in_jnt_rel, joints, status)
+    IF status <> 0 THEN
+        err_str = 'Error when trying to convert real values to joint position type'
+        RETURN(FALSE)
+    ENDIF
+    RETURN(TRUE)
+
+END BKD_JOINT
+
+ROUTINE COMPILE_RSP(res_array_sz: INTEGER; res_array: ARRAY OF STRING; rsp: STRING; delimiter: STRING)
+VAR
+    i:  INTEGER
+BEGIN
+    rsp = res_array[1]
+
+    IF res_array_sz > 1 THEN
+        FOR i=2 TO res_array_sz DO
+            rsp = rsp + delimiter + res_array[i]
+        ENDFOR
+    ENDIF
+    rsp = rsp + delimiter
+
+END COMPILE_RSP
+
+ROUTINE GET_JNT_POS(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING) 
+VAR
+    real_str:           STRING[254]
+    jpos:               JOINTPOS
+    jpos_rel:           ARRAY[9] OF REAL
+    status:             INTEGER
+    i:                  INTEGER
+
+BEGIN
+    jpos = CURJPOS(0, 0)
+    -- axis_limit_mask and ovr_tvr_mask are not available and can be set to 0
+
+    res_array_sz = 2
+    CNV_JPOS_REL(jpos, jpos_rel, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED 
+        res_array[2] = 'Failed to convert joints to readable values'
+        RETURN
+    ENDIF
+
+    res_array[1] = SUCCESS
+    res_array[2] = ''
+    FOR i=1 TO ARRAY_LEN(jpos_rel) DO
+        IF NOT UNINIT(jpos_rel[i]) THEN
+            CNV_REAL_STR(jpos_rel[i], 10, 4, real_str)  -- 10 digits, 4 after decimal point in degrees
+            IF i <> 1 THEN
+            		res_array[2] = res_array[2] + VAL_DEL
+            ENDIF
+            res_array[2] = res_array[2]  + real_str
+        ENDIF
+    ENDFOR
+    
+END GET_JNT_POS
+
+ROUTINE GET_RBT_POSE(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING) 
+VAR
+    real_str:           STRING[254]
+    cpos:               XYZWPREXT
+    x:                  STRING[32]
+    y:                  STRING[32]
+    z:                  STRING[32]
+    w:                  STRING[32]
+    p:                  STRING[32]
+    r:                  STRING[32]
+    cfg:                STRING[32]
+    
+BEGIN
+    cpos = CURPOS(0, 0)
+    -- axis_limit_mask and ovr_tvr_mask are not available and can be set to 0
+
+    CNV_REAL_STR(cpos.x, 10, 4, x)
+    CNV_REAL_STR(cpos.y, 10, 4, y)
+    CNV_REAL_STR(cpos.z, 10, 4, z)
+    CNV_REAL_STR(cpos.w, 10, 4, w)
+    CNV_REAL_STR(cpos.p, 10, 4, p)
+    CNV_REAL_STR(cpos.r, 10, 4, r)
+    CNV_CONF_STR(cpos.config_data, cfg)
+
+    res_array_sz = 3
+    res_array[1] = SUCCESS
+    res_array[2] = x + VAL_DEL + y + VAL_DEL + z + VAL_DEL + w + VAL_DEL + p + VAL_DEL + r 
+    res_array[3] = cfg
+
+END GET_RBT_POSE
+
+ROUTINE MV_W_JOINT(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    joints:        JOINTPOS
+
+    motion_type:            INTEGER
+    velocity:               INTEGER
+    accel:           INTEGER
+    cont:                   INTEGER
+    next:                   INTEGER
+
+    out_pose:               POSITION
+    wjnt_cfg:               CONFIG
+    ext_ang:                ARRAY[8] OF REAL
+    
+    start_index:            INTEGER
+    prog_index:             INTEGER
+    i:                      INTEGER
+    status:                 INTEGER
+
+    ret:                    BOOLEAN
+    err_msg:                STRING[64]
+CONST
+
+    PTP = 1
+    LIN = 2
+
+BEGIN
+
+    res_array_sz = 2
+
+    WRITE('Processing Motion Type :', req_array[2], CR);
+    CNV_STR_INT(req_array[2], motion_type)
+
+    ret = BKD_JOINT(req_array[3], joints, err_msg)
+    IF ret = FALSE THEN
+        res_array[1] = FAILED 
+        res_array[2] = err_msg
+        RETURN
+    ENDIF
+
+    WRITE('Testing reachability', CR)
+    -- Convert joint angles to a cartesian position
+    -- Sanity check for reacability
+    JOINT2POS(joints, $UFRAME, $UTOOL, 0,
+              out_pose, wjnt_cfg, ext_ang, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Position is not reachable'
+        RETURN
+    ENDIF
+
+    -- Put joint positions to PR[81]
+    SET_JPOS_REG(81, joints, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to store joint position in PR[99]'
+        RETURN
+    ENDIF
+
+    WRITE('Processing Velocity :', req_array[4], CR);
+    -- Get vel_val put it to R[81]
+    CNV_STR_INT(req_array[4], velocity)
+    SET_INT_REG(81, velocity, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to store velocity in R[81]'
+        RETURN
+    ENDIF
+
+
+    WRITE('Processing CONT Type :', req_array[5], CR);
+    -- Get CNT value and put it to R[83]
+    CNV_STR_INT(req_array[5], cont)
+    SET_INT_REG(83, cont, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to store cont value in PR[83]'
+        RETURN
+    ENDIF
+
+    -- Reset stop register
+    SET_INT_REG(80, 0, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to reset stop signal'
+        RETURN
+    ENDIF
+
+    WRITE('CALLING TP PROGRAM MOVE', CR);
+
+    SELECT motion_type OF
+        CASE(LIN):
+            -- linear movement
+            CALL_PROGLIN('EUREKA_MOVE_LIN', 1, prog_index, FALSE)
+        CASE(PTP):
+            -- joint movement
+            CALL_PROGLIN('EUREKA_MOVE_PTP', 1, prog_index, FALSE)
+        ELSE:
+            res_array[1] = FAILED
+            res_array[2] = 'Invalid motion type'
+            RETURN
+    ENDSELECT
+
+    res_array[1] = SUCCESS
+    res_array[2] = 'Motion Complete'
+
+END MV_W_JOINT
+
+ROUTINE MV_W_POSE(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    in_pos:               XYZWPREXT
+
+    motion_type:            INTEGER
+    velocity:               INTEGER
+    accel:           INTEGER
+    cont:                   INTEGER
+    next:                   INTEGER
+
+    out_pose:               POSITION
+    wjnt_cfg:               CONFIG
+    ext_ang:                ARRAY[8] OF REAL
+    
+    start_index:            INTEGER
+    prog_index:             INTEGER
+    i:                      INTEGER
+    status:                 INTEGER
+
+    ret:                    BOOLEAN
+    err_msg:                STRING[64]
+CONST
+
+    PTP = 1
+    LIN = 2
+
+BEGIN
+
+    res_array_sz = 2
+
+    WRITE('Processing Motion Type :', req_array[2], CR);
+    CNV_STR_INT(req_array[2], motion_type)
+
+    ret = BKD_RBT_POSE(req_array[3], req_array[4], in_pos, err_msg)
+    IF ret = FALSE THEN
+        res_array[1] = FAILED 
+        res_array[2] = err_msg
+        RETURN
+    ENDIF
+
+    WRITE('Testing reachability', CR)
+    CHECK_EPOS((in_pos), $UFRAME, $UTOOL, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Position is not reachable'
+        RETURN
+    ENDIF
+
+    -- Put joint positions to PR[81]
+    SET_POS_REG(81, (in_pos), status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to store pose configuration in PR[99]'
+        RETURN
+    ENDIF
+
+    WRITE('Processing Velocity :', req_array[5], CR);
+    -- Get vel_val put it to R[81]
+    CNV_STR_INT(req_array[5], velocity)
+    SET_INT_REG(81, velocity, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to store velocity in R[81]'
+        RETURN
+    ENDIF
+
+    WRITE('Processing CONT Type :', req_array[6], CR);
+    -- Get CNT value and put it to R[83]
+    CNV_STR_INT(req_array[6], cont)
+    SET_INT_REG(83, cont, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to store cont value in PR[83]'
+        RETURN
+    ENDIF
+
+    -- Reset stop register
+    SET_INT_REG(80, 0, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to reset stop signal'
+        RETURN
+    ENDIF
+
+
+    SELECT motion_type OF
+        CASE(LIN):
+            -- linear movement
+            CALL_PROGLIN('EUREKA_MOVE_LIN', 1, prog_index, FALSE)
+        CASE(PTP):
+            -- joint movement
+            CALL_PROGLIN('EUREKA_MOVE_PTP', 1, prog_index, FALSE)
+        ELSE:
+            res_array[1] = FAILED
+            res_array[2] = 'Invalid motion type'
+            RETURN
+    ENDSELECT
+
+    res_array[1] = SUCCESS
+    res_array[2] = 'Motion Complete'
+
+END MV_W_POSE
+
+ROUTINE STOP_MOVE(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    status:         INTEGER
+BEGIN
+    -- CANCEL GROUP[1]
+    res_array_sz = 2
+
+    -- Set stop register
+    SET_INT_REG(80, 1, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to reset stop signal'
+        RETURN
+    ENDIF
+
+    res_array[1] = SUCCESS
+    res_array[2] = 'Motion Cancelled'
+END STOP_MOVE
+
+ROUTINE SET_ACCEL(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    status:         INTEGER
+    accel:   INTEGER
+BEGIN
+
+    res_array_sz = 2
+
+    WRITE('Processing Accel :', req_array[2], CR);
+    -- Get acc_val and put it to R[82]
+    CNV_STR_INT(req_array[2], accel)
+    SET_INT_REG(82, accel, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to store accel in R[81]'
+        RETURN
+    ENDIF
+    res_array[1] = SUCCESS
+    res_array[2] = 'Accel successfully updated'
+END SET_ACCEL
+
+ROUTINE SET_SPEED(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    status:             INTEGER
+    entry:              INTEGER
+    speed:   INTEGER
+BEGIN
+
+    res_array_sz = 2
+
+    WRITE('Processing Overall Speed :', req_array[2], CR);
+    -- Get acc_val and put it to R[82]
+    CNV_STR_INT(req_array[2], speed)
+    SET_VAR(entry, '*SYSTEM*', '$MCR.$GENOVERRIDE', speed, status)
+        IF status <> 0 THEN
+        res_array[1] = FAILED 
+        res_array[2] = 'Failed to set $MCR.$GENOVERRIDE'
+        RETURN
+    ENDIF
+    res_array[1] = SUCCESS
+    res_array[2] = 'Speed successfully updated'
+END SET_SPEED
+
+ROUTINE JNT_TO_POSE(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+
+    joints:        JOINTPOS
+
+    out_pose:               POSITION
+    cnv_pose:               XYZWPREXT
+    wjnt_cfg:               CONFIG
+    ext_ang:                ARRAY[8] OF REAL
+
+    x:                      STRING[32]
+    y:                      STRING[32]
+    z:                      STRING[32]
+    w:                      STRING[32]
+    p:                      STRING[32]
+    r:                      STRING[32]
+    cfg:                    STRING[32]
+    
+    i:                      INTEGER
+    status:                 INTEGER
+
+    ret:                    BOOLEAN
+    err_msg:                STRING[64]
+
+BEGIN
+
+    res_array_sz = 2
+
+    ret = BKD_JOINT(req_array[2], joints, err_msg)
+    IF ret = FALSE THEN
+        res_array[1] = FAILED 
+        res_array[2] = err_msg
+        RETURN
+    ENDIF
+
+    WRITE('Running JOINT2POS', CR)
+    -- Convert joint angles to a cartesian position
+    JOINT2POS(joints, $UFRAME, $UTOOL, 0,
+              out_pose, wjnt_cfg, ext_ang, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Position not computable'
+        RETURN
+    ENDIF
+
+    WRITE('Converting POSITION to XYZWPREXT', CR)
+    cnv_pose = out_pose
+    CNV_REAL_STR(cnv_pose.x, 10, 4, x)
+    CNV_REAL_STR(cnv_pose.y, 10, 4, y)
+    CNV_REAL_STR(cnv_pose.z, 10, 4, z)
+    CNV_REAL_STR(cnv_pose.w, 10, 4, w)
+    CNV_REAL_STR(cnv_pose.p, 10, 4, p)
+    CNV_REAL_STR(cnv_pose.r, 10, 4, r)
+    CNV_CNF_STRG(cnv_pose.config_data, cfg, 1)
+
+
+    res_array_sz = 3
+    res_array[1] = SUCCESS
+    res_array[2] = x + VAL_DEL + y + VAL_DEL + z + VAL_DEL + w + VAL_DEL + p + VAL_DEL + r 
+    res_array[3] = cfg
+
+END JNT_TO_POSE
+
+ROUTINE POSE_TO_JNT(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    in_pos:               XYZWPREXT
+    wjnt_cfg:               CONFIG
+    ext_ang:                ARRAY[8] OF REAL
+
+
+    real_str:           STRING[254]
+    ref_jnt:                JOINTPOS
+    out_jnt:               JOINTPOS
+    out_jnt_rel:           ARRAY[9] OF REAL
+
+    status:             INTEGER
+    i:                  INTEGER
+    err_msg:            STRING[64]
+    ret:                BOOLEAN
+BEGIN
+
+    res_array_sz = 2
+
+    ret = BKD_RBT_POSE(req_array[2], req_array[3], in_pos, err_msg)
+    IF ret = FALSE THEN
+        res_array[1] = FAILED 
+        res_array[2] = err_msg
+        RETURN
+    ENDIF
+
+
+    ref_jnt = CURJPOS(0, 0)
+
+    WRITE('Running POS2JOINT', CR)
+    -- Convert joint angles to a cartesian position
+    POS2JOINT(ref_jnt, (in_pos), $UFRAME, $UTOOL, 0,
+              wjnt_cfg, ext_ang, out_jnt, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Joint configuration not computable'
+        RETURN
+    ENDIF
+
+    CNV_JPOS_REL(out_jnt, out_jnt_rel, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED 
+        res_array[2] = 'Failed to convert joints to readable values'
+        RETURN
+    ENDIF
+
+    res_array[1] = SUCCESS
+    res_array[2] = ''
+    FOR i=1 TO ARRAY_LEN(out_jnt_rel) DO
+        IF NOT UNINIT(out_jnt_rel[i]) THEN
+            CNV_REAL_STR(out_jnt_rel[i], 10, 4, real_str)  -- 10 digits, 4 after decimal point in degrees
+            IF i <> 1 THEN
+            		res_array[2] = res_array[2] + VAL_DEL
+            ENDIF
+            res_array[2] = res_array[2]  + real_str
+        ENDIF
+    ENDFOR
+
+END POSE_TO_JNT
+
+ROUTINE GET_TOOL_FRM(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    status:             INTEGER
+    entry:              INTEGER
+    tool_frm:         INTEGER
+BEGIN
+    res_array_sz = 2
+
+    GET_VAR(entry, '*SYSTEM*', '$MNUTOOLNUM[1]', tool_frm, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED 
+        res_array[2] = 'Failed to get $MNUTOOLNUM[1]'
+        RETURN
+    ENDIF
+
+    CNV_INT_STR(tool_frm, 2, 0, res_array[2])
+
+    res_array[1] = SUCCESS 
+
+END GET_TOOL_FRM
+
+ROUTINE SET_TOOL_FRM(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    status:             INTEGER
+    entry:              INTEGER
+    tool_frm:         INTEGER
+BEGIN
+
+    res_array_sz = 2
+
+    CNV_STR_INT(req_array[2], tool_frm)
+    SET_VAR(entry, '*SYSTEM*', '$MNUTOOLNUM[1]', tool_frm, status)
+        IF status <> 0 THEN
+        res_array[1] = FAILED 
+        res_array[2] = 'Failed to set $MNUTOOLNUM[1]'
+        RETURN
+    ENDIF
+    
+    GET_VAR(entry, '*SYSTEM*', '$MNUTOOL[1, ' + req_array[2] + ']', $UTOOL, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED 
+        res_array[2] = 'Failed to set $MNUTOOL [' + req_array[2] +']'
+        RETURN
+    ENDIF
+
+    res_array[1] = SUCCESS 
+    res_array[2] = 'Success to set frame [' + req_array[2] +']'
+
+END SET_TOOL_FRM
+
+ROUTINE GET_WORK_FRM(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    status:             INTEGER
+    entry:              INTEGER
+    tool_frm:         INTEGER
+BEGIN
+    res_array_sz = 2
+
+    GET_VAR(entry, '*SYSTEM*', '$MNUFRAMENUM[1]', tool_frm, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED 
+        res_array[2] = 'Failed to get $MNUFRAME [' + req_array[2] +']'
+        RETURN
+    ENDIF
+
+    CNV_INT_STR(tool_frm, 2, 0, res_array[2])
+
+    res_array[1] = SUCCESS 
+END GET_WORK_FRM
+
+ROUTINE SET_WORK_FRM(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    status:             INTEGER
+    entry:              INTEGER
+    tool_frm:         INTEGER
+BEGIN
+
+    res_array_sz = 2
+
+    CNV_STR_INT(req_array[2], tool_frm)
+    SET_VAR(entry, '*SYSTEM*', '$MNUFRAMENUM[1]', tool_frm, status)
+        IF status <> 0 THEN
+        res_array[1] = FAILED 
+        res_array[2] = 'Failed to set $MNUFRAMENUM [' + req_array[2] +']'
+        RETURN
+    ENDIF
+    
+    GET_VAR(entry, '*SYSTEM*', '$MNUFRAME[1, ' + req_array[2] + ']', $UFRAME, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED 
+        res_array[2] = 'Failed to set $MNUFRAME [' + req_array[2] +']'
+        RETURN
+    ENDIF
+
+    res_array[1] = SUCCESS 
+    res_array[2] = 'Success to set frame [' + req_array[2] +']'
+END SET_WORK_FRM
+
+ROUTINE GET_TL_FRMDF(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    status:             INTEGER
+    entry:              INTEGER
+
+    tool_frm:           POSITION
+    tool_frm_xyz:               XYZWPREXT
+
+    x:                  STRING[32]
+    y:                  STRING[32]
+    z:                  STRING[32]
+    w:                  STRING[32]
+    p:                  STRING[32]
+    r:                  STRING[32]
+    cfg:                STRING[32]
+BEGIN
+    res_array_sz = 2
+
+    GET_VAR(entry, '*SYSTEM*', '$MNUTOOL[1, ' + req_array[2] + ']', tool_frm, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED 
+        res_array[2] = 'Failed to get $MNUTOOL [' + req_array[2] +']'
+        RETURN
+    ENDIF
+
+    WRITE('Converting POSITION to XYZWPREXT', CR)
+    tool_frm_xyz = tool_frm
+    CNV_REAL_STR(tool_frm_xyz.x, 10, 4, x)
+    CNV_REAL_STR(tool_frm_xyz.y, 10, 4, y)
+    CNV_REAL_STR(tool_frm_xyz.z, 10, 4, z)
+    CNV_REAL_STR(tool_frm_xyz.w, 10, 4, w)
+    CNV_REAL_STR(tool_frm_xyz.p, 10, 4, p)
+    CNV_REAL_STR(tool_frm_xyz.r, 10, 4, r)
+    CNV_CNF_STRG(tool_frm_xyz.config_data, cfg, 1)
+
+
+    res_array_sz = 3
+    res_array[1] = SUCCESS
+    res_array[2] = x + VAL_DEL + y + VAL_DEL + z + VAL_DEL + w + VAL_DEL + p + VAL_DEL + r 
+    res_array[3] = cfg
+
+END GET_TL_FRMDF
+
+ROUTINE SET_TL_FRMDF(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    status:             INTEGER
+    entry:              INTEGER
+
+    ret:            BOOLEAN
+    err_msg:            STRING[32]
+
+    tool_frm_xyz:           XYZWPREXT
+    tool_frm:           POSITION
+BEGIN
+    res_array_sz = 2
+
+    ret = BKD_RBT_POSE(req_array[3], req_array[4], tool_frm_xyz, err_msg)
+    IF ret = FALSE THEN
+        res_array[1] = FAILED 
+        res_array[2] = err_msg
+        RETURN
+    ENDIF
+    tool_frm = tool_frm_xyz -- Convert to POSITION type
+
+    SET_VAR(entry, '*SYSTEM*', '$MNUTOOL[1, ' + req_array[2] + ']', tool_frm, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED 
+        res_array[2] = 'Failed to set $MNUTOOL [' + req_array[2] +']'
+        RETURN
+    ENDIF
+
+    res_array[1] = SUCCESS 
+    res_array[2] = 'Success to set tool frame definition [' + req_array[2] +']'
+
+END SET_TL_FRMDF
+
+ROUTINE GET_WK_FRMDF(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    status:             INTEGER
+    entry:              INTEGER
+
+    work_frm:           POSITION
+    work_frm_xyz:               XYZWPREXT
+
+    x:                  STRING[32]
+    y:                  STRING[32]
+    z:                  STRING[32]
+    w:                  STRING[32]
+    p:                  STRING[32]
+    r:                  STRING[32]
+    cfg:                STRING[32]
+BEGIN
+    res_array_sz = 2
+
+    GET_VAR(entry, '*SYSTEM*', '$MNUFRAME[1, ' + req_array[2] + ']', work_frm, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED 
+        res_array[2] = 'Failed to get $MNUFRAME[1,' + req_array[2] +']'
+        RETURN
+    ENDIF
+    
+    WRITE('Converting POSITION to XYZWPREXT', CR)
+    work_frm_xyz = work_frm
+    CNV_REAL_STR(work_frm_xyz.x, 10, 4, x)
+    CNV_REAL_STR(work_frm_xyz.y, 10, 4, y)
+    CNV_REAL_STR(work_frm_xyz.z, 10, 4, z)
+    CNV_REAL_STR(work_frm_xyz.w, 10, 4, w)
+    CNV_REAL_STR(work_frm_xyz.p, 10, 4, p)
+    CNV_REAL_STR(work_frm_xyz.r, 10, 4, r)
+    CNV_CNF_STRG(work_frm_xyz.config_data, cfg, 1)
+
+
+    res_array_sz = 3
+    res_array[1] = SUCCESS
+    res_array[2] = x + VAL_DEL + y + VAL_DEL + z + VAL_DEL + w + VAL_DEL + p + VAL_DEL + r 
+    res_array[3] = cfg
+END GET_WK_FRMDF
+
+ROUTINE SET_WK_FRMDF(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    status:             INTEGER
+    entry:              INTEGER
+
+    ret:            BOOLEAN
+    err_msg:            STRING[32]
+
+    in_pos_str:           ARRAY[6] OF STRING[16]
+    in_pos_cnt:           INTEGER
+
+    work_frm:           POSITION
+    work_frm_xyz:       XYZWPREXT
+    
+BEGIN
+    res_array_sz = 2
+
+    ret = BKD_RBT_POSE(req_array[3], req_array[4], work_frm_xyz, err_msg)
+    IF ret = FALSE THEN
+        res_array[1] = FAILED 
+        res_array[2] = err_msg
+        RETURN
+    ENDIF
+    work_frm = work_frm_xyz
+
+
+    SET_VAR(entry, '*SYSTEM*', '$MNUFRAME[1, ' + req_array[2] + ']', work_frm, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED 
+        res_array[2] = 'Failed to set $MNUFRAME[1,' + req_array[2] +']'
+        RETURN
+    ENDIF
+
+    res_array[1] = SUCCESS 
+    res_array[2] = 'Success to set work frame definition [' + req_array[2] +']'
+
+END SET_WK_FRMDF
+
+ROUTINE READ_IO(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    port_type:          INTEGER
+    port_no:            INTEGER
+    value:              INTEGER
+    status:             INTEGER
+
+    t_value:            STRING[16]
+BEGIN
+    res_array_sz = 2
+
+    CNV_STR_INT(req_array[2], port_type)
+    CNV_STR_INT(req_array[3], port_no)
+
+    WRITE('Getting PORT Value')
+    GET_PORT_VAL(port_type, port_no, value, status)
+    IF status <> 0 THEN
+        POST_ERR(status, 'parameter', 0, 0)
+        res_array[1] = FAILED 
+        res_array[2] = 'Failed to getting port ' + req_array[2] + ':' + req_array[3]
+        RETURN
+    ENDIF
+
+    res_array[1] = SUCCESS 
+    CNV_INT_STR(value, 16, 0, t_value)
+    res_array[2] = t_value
+
+
+END READ_IO
+
+ROUTINE WRITE_IO(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    port_type:          INTEGER
+    port_no:            INTEGER
+    value:              INTEGER
+    status:             INTEGER
+BEGIN
+    res_array_sz = 2
+
+    CNV_STR_INT(req_array[2], port_type)
+    CNV_STR_INT(req_array[3], port_no)
+    CNV_STR_INT(req_array[4], value)
+
+    WRITE('Setting PORT Value')
+    SET_PORT_VAL(port_type, port_no, value, status)
+    IF status <> 0 THEN
+        POST_ERR(status, 'parameter', 0, 0)
+        
+        res_array[1] = FAILED 
+        res_array[2] = 'Failed to setting port ' + req_array[2] + ':' + req_array[3] +'=' + req_array[4]
+        RETURN
+    ENDIF
+
+    res_array[1] = SUCCESS 
+    res_array[2] = 'Success in setting port ' + req_array[2] + ':' + req_array[3] +'=' + req_array[4]
+
+END WRITE_IO
+
+ROUTINE GET_ERROR(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    error_code:     INTEGER
+    error_str:   STRING[40]
+    cause_code:     INTEGER
+    cause_str:   STRING[40]
+    time_int:       INTEGER
+    severity:       INTEGER
+    prog_nam:       STRING[40]
+    t_value:        STRING[4]
+BEGIN
+
+    ERR_DATA(MAXINT, error_code, error_str, cause_code, cause_str, time_int, severity, prog_nam)
+    res_array_sz = 8
+    res_array[1] = SUCCESS
+    CNV_INT_STR(error_code, 4, 0, t_value)
+    res_array[2] = t_value
+    res_array[3] = error_str
+    CNV_INT_STR(cause_code, 4, 0, t_value)
+    res_array[4] = t_value
+    res_array[5] = cause_str
+    CNV_INT_STR(time_int, 4, 0, t_value)
+    res_array[6] = t_value
+    CNV_INT_STR(severity, 4, 0, t_value)
+    res_array[7] = t_value
+    res_array[8] = prog_nam
+
+
+END GET_ERROR
+
+ROUTINE RST_CTR(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    successful: BOOLEAN
+BEGIN
+    RESET(successful)
+    res_array_sz = 1
+    IF successful THEN
+        res_array[1] = SUCCESS
+    ELSE
+        res_array[1] = FAILED
+    ENDIF
+
+END RST_CTR
+
+ROUTINE HND_REQ(req: STRING; rsp: STRING)
+VAR
+	req_array_sz:		INTEGER
+	res_array_sz:	INTEGER
+	req_array:			ARRAY[20] OF STRING[128]
+	res_array:			ARRAY[20] OF STRING[128]
+
+    req_command:        INTEGER
+
+    temp:       STRING[4]
+CONST
+    GET_TOOLFRM = 0
+    SET_TOOLFRM = 1
+    GET_WORKFRM = 2
+    SET_WORKFRM = 3
+    GET_TLFRMDF = 4
+    SET_TLFRMDF = 5
+    GET_WKFRMDF = 6
+    SET_WKFRMDF = 7
+    J2P = 8
+    P2J = 9
+    SET_ACC = 10
+    SET_SPD = 11
+    MV_TGT_JOINT = 12
+    MV_TGT_POSE = 13
+    SET_EX_TR_DA = 14
+    EXC_TRAJ = 15
+    STP_MV = 16
+    GET_JOINTS = 17
+    GET_POSE = 18
+    RD_IO = 19
+    WR_IO = 20
+    -- READ_VARIABLE = 21
+    -- WRITE_VARIABLE = 22
+    GET_LST_ERR = 23
+    RESET_ERROR = 24
+BEGIN
+
+    BREAKDWN_REQ(req, req_array_sz, req_array, MSG_DEL)
+
+    CNV_INT_STR(req_array_sz, 4, 0, temp)
+    -- WRITE('Req array Length : ',  temp,  CR);
+
+    rsp = 'Received : ' + req;
+    
+    -- WRITE('Command : ',  req_array[1],  CR);
+
+    CNV_STR_INT(req_array[1], req_command)
+
+    SELECT req_command OF
+        CASE(GET_JOINTS):
+            GET_JNT_POS(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(GET_POSE):
+            GET_RBT_POSE(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(J2P):
+            JNT_TO_POSE(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(P2J):
+            POSE_TO_JNT(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(SET_TOOLFRM):
+            SET_TOOL_FRM(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(GET_TOOLFRM):
+            GET_TOOL_FRM(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(SET_WORKFRM):
+            SET_WORK_FRM(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(GET_WORKFRM):
+            GET_WORK_FRM(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(GET_TLFRMDF):
+            GET_TL_FRMDF(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(SET_TLFRMDF):
+            SET_TL_FRMDF(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(GET_WKFRMDF):
+            GET_WK_FRMDF(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(SET_WKFRMDF):
+            SET_WK_FRMDF(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(MV_TGT_JOINT):
+            MV_W_JOINT(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(MV_TGT_POSE):
+            MV_W_POSE(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(STP_MV):
+            STOP_MOVE(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(SET_ACC):
+            SET_ACCEL(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(SET_SPD):
+            SET_SPEED(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(RD_IO):
+            READ_IO(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(WR_IO):
+            WRITE_IO(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(GET_LST_ERR):
+            GET_ERROR(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(RESET_ERROR):
+            RST_CTR(req_array_sz, req_array, res_array_sz, res_array)
+        ELSE:
+            res_array[1] = FAILED
+            res_array[2] = 'Invalid command.'
+    ENDSELECT
+
+    COMPILE_RSP(res_array_sz, res_array, rsp, MSG_DEL)
+    
+	
+END HND_REQ
+
+ROUTINE STATUS_CB(rbt_sts:INTEGER; rsp: STRING) : BOOLEAN
+VAR
+    cur_rbt_sts:   INTEGER
+    port_type:          INTEGER
+    port_no:            INTEGER
+    value:              INTEGER
+    motion_sts:	INTEGER
+    control_sts:	INTEGER
+    value_str:		STRING[1]
+    status:             INTEGER
+
+    t_value:            STRING[5]
+    res_array:			ARRAY[2] OF STRING[32]
+    res_array_sz:	INTEGER
+CONST
+    EMGOP       = 1
+    EMGTP       = 2
+    EMGEX       = 4
+    USRALM      = 8
+    REMOTE      = 16
+    TPEN        = 32
+    SYSRDY      = 64
+    IS_CNT_RUN = 128
+    IS_MON_RUN = 256
+
+BEGIN
+    res_array_sz = 2
+    cur_rbt_sts = 0
+
+
+    GET_PORT_VAL(13, 1, value, status)
+    IF (status = 0) AND (value = 1) THEN
+        cur_rbt_sts = cur_rbt_sts OR EMGOP
+    ENDIF
+
+    GET_PORT_VAL(13, 2, value, status)
+    IF (status = 0) AND (value = 1) THEN
+        cur_rbt_sts = cur_rbt_sts OR EMGTP
+    ENDIF
+
+    GET_PORT_VAL(13, 7, value, status)
+    IF (status = 0) AND (value = 1) THEN
+        cur_rbt_sts = cur_rbt_sts OR EMGEX
+    ENDIF
+
+    GET_PORT_VAL(13, 14, value, status)
+    IF (status = 0) AND (value = 1) THEN
+        cur_rbt_sts = cur_rbt_sts OR USRALM
+    ENDIF
+
+    GET_PORT_VAL(11, 2, value, status)
+    IF (status = 0) AND (value = 1)  THEN
+        cur_rbt_sts = cur_rbt_sts OR REMOTE
+    ENDIF
+
+    GET_PORT_VAL(12, 7, value, status)
+    IF (status = 0) AND (value = 1)  THEN
+        cur_rbt_sts = cur_rbt_sts OR TPEN
+    ENDIF
+
+    GET_PORT_VAL(21, 2, value, status)
+    IF (status = 0) AND (value = 1)  THEN
+        cur_rbt_sts = cur_rbt_sts OR SYSRDY
+    ENDIF
+    
+    GET_TSK_INFO('EUK_CNT_SRV', 0, TSK_STATUS, control_sts, value_str, status)
+    WRITE('control state: ', control_sts)
+    IF (status = 0) AND (control_sts = 0) THEN
+    	cur_rbt_sts = cur_rbt_sts OR IS_CNT_RUN
+    ENDIF
+    
+    
+    GET_TSK_INFO('EUK_MON_SRV', 0, TSK_STATUS, motion_sts, value_str, status)
+    WRITE('motion state: ', motion_sts)
+    IF (status = 0) AND (motion_sts = 0) THEN
+    	cur_rbt_sts = cur_rbt_sts OR IS_MON_RUN
+    ENDIF
+    
+    res_array[1] = SUCCESS 
+    CNV_INT_STR(cur_rbt_sts, 5, 0, t_value)
+    res_array[2] = t_value
+    COMPILE_RSP(res_array_sz, res_array, rsp, MSG_DEL)
+
+    IF cur_rbt_sts <> rbt_sts THEN
+        rbt_sts = cur_rbt_sts
+        RETURN(TRUE)
+    ENDIF
+
+    RETURN(FALSE)
+
+END STATUS_CB

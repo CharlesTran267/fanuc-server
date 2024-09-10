@@ -1,0 +1,28 @@
+ROUTINE START_SERVER(comm_file: FILE; server_tag: STRING; port: INTEGER)
+VAR
+status:	INTEGER
+BEGIN
+	SET_FILE_ATR(comm_file, ATR_IA)
+	WRITE (' Starting server on : ', server_tag, CR)
+	
+	MSG_CONNECT (server_tag, status)
+	WRITE ( ' First connect status = ',status,CR)
+	
+	IF status <> 0 THEN
+		WRITE ( 'Failed to connect to', server_tag, CR)
+		MSG_DISCO(server_tag,status)
+		CLOSE FILE comm_file
+		RETURN
+	ENDIF
+	
+	OPEN FILE comm_file ('rw', server_tag)
+END START_SERVER
+
+ROUTINE STOP_SERVER(comm_file: FILE; server_tag: STRING)
+VAR
+status:	INTEGER
+BEGIN
+    -- disconnect
+    CLOSE FILE comm_file
+    MSG_DISCO(server_tag, status)
+END STOP_SERVER

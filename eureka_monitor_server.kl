@@ -1,0 +1,88 @@
+PROGRAM EUK_MNT_SRV
+%STACKSIZE = 4000
+%NOLOCKGROUP
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%ALPHABETIZE
+%COMMENT = 'EUREKA MONITOR SERVER V0.0.1'
+
+VAR
+	comm_file:	FILE
+	req:		STRING[254]
+	rsp:	STRING[254]
+	keep_conn:	BOOLEAN
+
+	rbt_sts:	INTEGER
+	loop_count:		INTEGER
+	ret:			BOOLEAN
+	status:             INTEGER
+	
+CONST
+	SERVER_TAG = 'S6:'
+	PORT_NUMBER = 18733
+	
+	MSG_DEL = ';'
+	VAL_DEL = ','
+	
+	SUCCESS = '0'
+	FAILED = '1'
+
+
+%INCLUDE socket_server
+%INCLUDE eureka_application
+
+BEGIN
+	
+	WRITE('STARTING EUREKA MONITOR SERVER.', CR)
+
+	rbt_sts = 0
+	loop_count = 0
+
+	WHILE TRUE DO
+		
+		-- start server communication
+		START_SERVER(comm_file,SERVER_TAG, PORT_NUMBER);
+		
+		keep_conn = TRUE;
+
+		READ comm_file(req);
+		
+		ret = STATUS_CB(rbt_sts, rsp);
+		WRITE comm_file(rsp);
+
+		-- If client disconnects without sending a req
+		IF UNINIT(req) THEN
+			GOTO new_conn
+		ENDIF
+		
+		WHILE TRUE DO
+
+			DELAY 10
+
+			status = IO_STATUS(comm_file)
+
+			IF status <> 0 THEN
+				GOTO new_conn
+			ENDIF
+		
+			
+			ret = STATUS_CB(rbt_sts, rsp);
+			loop_count = loop_count + 1
+			
+			-- return a message ever 1s or when there is a change
+			IF ret OR (loop_count = 100) THEN
+				-- WRITE ('Sending to client : ', rsp, CR)
+				WRITE comm_file(rsp);
+				loop_count = 0
+			ENDIF
+			
+		ENDWHILE
+		
+		NEW_CONN::
+		
+		WRITE('STOPPING EUREKA MONITOR SERVER.', CR);
+		STOP_SERVER(comm_file, SERVER_TAG);
+	
+	ENDWHILE
+
+	
+END EUK_MNT_SRV	

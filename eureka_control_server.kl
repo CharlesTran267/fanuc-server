@@ -1,0 +1,65 @@
+PROGRAM EUK_CNT_SRV
+%STACKSIZE = 4000
+%NOLOCKGROUP
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%ALPHABETIZE
+%COMMENT = 'EUREKA CONTROL SERVER V0.0.1'
+
+VAR
+	comm_file:	FILE
+	req:		STRING[254]
+	rsp:		STRING[254]
+	keep_conn:	BOOLEAN
+	
+CONST
+	SERVER_TAG = 'S8:'
+	PORT_NUMBER = 18735
+
+    MSG_DEL = ';'
+	VAL_DEL = ','
+	
+	SUCCESS = '0'
+	FAILED = '1'
+
+%INCLUDE socket_server
+%INCLUDE eureka_application
+
+BEGIN
+	
+	WRITE('STARTING EUREKA CONTROL SERVER.', CR);
+
+	WHILE TRUE DO
+		
+		-- start server communication
+		START_SERVER(comm_file,SERVER_TAG, PORT_NUMBER);
+		
+		keep_conn = TRUE;
+		
+		WHILE keep_conn DO
+		
+			READ comm_file(req);
+			
+			IF UNINIT(req) THEN
+				GOTO new_conn
+			ENDIF
+			
+			-- WRITE ('Recieved  from client : ', req, CR)
+			
+			HND_REQ(req, rsp);
+			
+			-- WRITE ('Sending to client : ', rsp, CR)
+			
+			WRITE comm_file(rsp);
+			
+			keep_conn = (req <> 'END');
+		ENDWHILE
+		
+		NEW_CONN::
+		
+		WRITE('STOPPING EUREKA CONTROL SERVER.', CR);
+		STOP_SERVER(comm_file, SERVER_TAG);
+	
+	ENDWHILE
+
+	
+END EUK_CNT_SRV	

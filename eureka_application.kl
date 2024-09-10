@@ -231,7 +231,7 @@ BEGIN
     SET_JPOS_REG(81, joints, status)
     IF status <> 0 THEN
         res_array[1] = FAILED
-        res_array[2] = 'Failed to store joint position in PR[99]'
+        res_array[2] = 'Failed to store joint position in PR[81]'
         RETURN
     ENDIF
 
@@ -269,15 +269,21 @@ BEGIN
     SELECT motion_type OF
         CASE(LIN):
             -- linear movement
-            CALL_PROGLIN('EUREKA_MOVE_LIN', 1, prog_index, FALSE)
+            RUN_TASK('EUREKA_MOVE_LIN_2', 1, FALSE, TRUE, 1, status)
         CASE(PTP):
             -- joint movement
-            CALL_PROGLIN('EUREKA_MOVE_PTP', 1, prog_index, FALSE)
+           RUN_TASK('EUREKA_MOVE_PTP_2', 1, FALSE, TRUE, 1, status)
         ELSE:
             res_array[1] = FAILED
             res_array[2] = 'Invalid motion type'
             RETURN
     ENDSELECT
+    
+    IF status <> 0 THEN
+    	res_array[1] = FAILED
+    	res_array[2] = 'Failed to move to target'
+    	RETURN
+    ENDIF
 
     res_array[1] = SUCCESS
     res_array[2] = 'Motion Complete'
@@ -372,10 +378,10 @@ BEGIN
     SELECT motion_type OF
         CASE(LIN):
             -- linear movement
-            CALL_PROGLIN('EUREKA_MOVE_LIN', 1, prog_index, FALSE)
+            CALL_PROGLIN('EUREKA_MOVE_LIN_2', 1, prog_index, FALSE)
         CASE(PTP):
             -- joint movement
-            CALL_PROGLIN('EUREKA_MOVE_PTP', 1, prog_index, FALSE)
+            CALL_PROGLIN('EUREKA_MOVE_PTP_2', 1, prog_index, FALSE)
         ELSE:
             res_array[1] = FAILED
             res_array[2] = 'Invalid motion type'
@@ -387,23 +393,98 @@ BEGIN
 
 END MV_W_POSE
 
+ROUTINE WAIT_MV_FIN(req_array_sz: INTEGER; req_array: ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+	status_lin:	INTEGER
+	status_ptp: 	INTEGER
+	timeout:	REAL
+	mv_lin_info:	INTEGER
+	mv_ptp_info:	INTEGER
+	value_str: 	STRING[1]
+	time_reached:		BOOLEAN
+BEGIN
+	res_array_sz = 2
+	time_reached = FALSE
+	
+	CNV_STR_REAL(req_array[2], timeout)
+	timeout = timeout * 1000
+	DELAY 100
+	WHILE timeout > 0 DO
+		GET_TSK_INFO('EUREKA_MOVE_PTP_2', 0, TSK_STATUS, mv_ptp_info, value_str, status_ptp)
+		GET_TSK_INFO('EUREKA_MOVE_LIN_2', 0, TSK_STATUS, mv_lin_info, value_str, status_lin)
+		
+		IF ((status_ptp = 0) AND (mv_ptp_info = 0)) OR ((status_lin = 0) AND (mv_lin_info = 0)) THEN
+			DELAY 100
+			timeout = timeout -100
+			IF timeout <= 0 THEN
+				time_reached = TRUE
+			ENDIF
+		ELSE
+			timeout = 0
+		ENDIF
+	ENDWHILE
+	
+	IF time_reached = TRUE THEN
+		res_array[1] = FAILED
+		res_array[2] = 'Timeout reached! Failed to wait for movement to finish'
+		RETURN
+	ENDIF
+	
+	GET_TSK_INFO('EUREKA_MOVE_PTP_2', 0, TSK_STATUS, mv_ptp_info, value_str, status_ptp)
+	GET_TSK_INFO('EUREKA_MOVE_LIN_2', 0, TSK_STATUS, mv_lin_info, value_str, status_lin)
+	
+	-- IF movement is paused
+	IF ((status_ptp = 0) AND (mv_ptp_info = 1)) OR ((status_lin = 0) AND (mv_lin_info = 1)) THEN
+		-- Try to abort movement tasks
+		ABORT_TASK('EUREKA_MOVE_PTP_2', TRUE, TRUE, status_ptp)
+		ABORT_TASK('EUREKA_MOVE_LIN_2', TRUE, TRUE, status_lin)
+		res_array[1] = FAILED
+		res_array[2] = 'Movement is paused! Something wrong occured!'
+		RETURN
+	ENDIF
+	
+	res_array[1] = SUCCESS
+	res_array[2] = 'Movement finished within timeout!'
+END WAIT_MV_FIN
+
 ROUTINE STOP_MOVE(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
 VAR
-    status:         INTEGER
+	status:	INTEGER
+   	 status_lin:	INTEGER
+	status_ptp: 	INTEGER
+	mv_lin_info:	INTEGER
+	mv_ptp_info:	INTEGER
+	value_str: 	STRING[1]
 BEGIN
     -- CANCEL GROUP[1]
-    res_array_sz = 2
+	res_array_sz = 2
 
-    -- Set stop register
-    SET_INT_REG(80, 1, status)
-    IF status <> 0 THEN
-        res_array[1] = FAILED
-        res_array[2] = 'Failed to reset stop signal'
-        RETURN
-    ENDIF
-
-    res_array[1] = SUCCESS
-    res_array[2] = 'Motion Cancelled'
+	res_array[1] = FAILED
+	 res_array[2] = 'Failed to stop movementl'
+	 
+	 GET_TSK_INFO('EUREKA_MOVE_PTP_2', 0, TSK_STATUS, mv_ptp_info, value_str, status_ptp)
+	 -- If moving ptp
+	IF (status_ptp = 0) AND (mv_ptp_info = 0) THEN
+	ABORT_TASK('EUREKA_MOVE_PTP_2', TRUE, TRUE, status)
+		IF status <> 0 THEN
+	        RETURN
+	ENDIF
+	    res_array[1] = SUCCESS
+	    res_array[2] = 'Motion Cancelled'
+	RETURN
+	ENDIF
+	
+	-- If moving linear
+	GET_TSK_INFO('EUREKA_MOVE_LIN_2', 0, TSK_STATUS, mv_ptp_info, value_str, status_ptp)
+	IF (status_ptp = 0) AND (mv_ptp_info = 0) THEN
+	ABORT_TASK('EUREKA_MOVE_LIN_2', TRUE, TRUE, status)
+		IF status <> 0 THEN
+	        	RETURN
+		ENDIF
+	   	 res_array[1] = SUCCESS
+	   	 res_array[2] = 'Motion Cancelled'
+		RETURN
+	ENDIF
 END STOP_MOVE
 
 ROUTINE SET_ACCEL(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
@@ -965,6 +1046,7 @@ CONST
     -- WRITE_VARIABLE = 22
     GET_LST_ERR = 23
     RESET_ERROR = 24
+    WAIT_MV = 25
 BEGIN
 
     BREAKDWN_REQ(req, req_array_sz, req_array, MSG_DEL)
@@ -1021,6 +1103,8 @@ BEGIN
             GET_ERROR(req_array_sz, req_array, res_array_sz, res_array)
         CASE(RESET_ERROR):
             RST_CTR(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(WAIT_MV):
+        	WAIT_MV_FIN(req_array_sz, req_array, res_array_sz, res_array)
         ELSE:
             res_array[1] = FAILED
             res_array[2] = 'Invalid command.'
@@ -1076,8 +1160,8 @@ BEGIN
         cur_rbt_sts = cur_rbt_sts OR EMGEX
     ENDIF
 
-    GET_PORT_VAL(13, 14, value, status)
-    IF (status = 0) AND (value = 1) THEN
+    GET_PORT_VAL(12, 21, value, status)
+    IF (status = 0) AND (value = 1)  THEN
         cur_rbt_sts = cur_rbt_sts OR USRALM
     ENDIF
 

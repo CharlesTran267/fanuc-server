@@ -1,0 +1,74 @@
+--
+--    This material is the joint property of FANUC Robotics North America  and
+--    FANUC  LTD  Japan,  and  must be returned to either FANUC Robotics North
+--    America or FANUC LTD Japan immediately upon request.  This material  and
+--    the  information  illustrated or contained herein may not be reproduced,
+--    copied, used, or transmitted in whole or in part in any way without  the
+--    prior written consent of both FANUC Robotics North America and FANUC LTD
+--    Japan.
+--
+--             All Rights Reserved
+--             Copyright (C)   2019
+--             FANUC America
+--             FANUC LTD Japan
+--
+--    Include file: swrout - Spot Welding (SpotTool+) routine definition
+--
+--    Description:
+--    This file defines the SpotTool+ library routines.
+--
+--    Language: KAREL
+--
+--    Source File: swrout.kl
+--
+--    Modification history:
+--    2021/09/23 Y.Amagata   Initial implementation
+--    -
+
+---------------------------------------------------------------------------------------
+ROUTINE set_weld_stat(enbl:BOOLEAN; status:INTEGER) from swutils
+--
+-- enable/disable weld status
+--
+-- Input parameters:
+-- enbl: enable or disable weld status.
+--
+-- Output parameters:
+-- status: Return status. Zero: success. Non-zero: Error (can be posted by post_err)
+--
+
+---------------------------------------------------------------------------------------
+ROUTINE set_gun_strok(enbl:BOOLEAN; status:INTEGER) from swutils
+--
+-- enable/disable gun stroke
+--
+-- Input parameters:
+-- enbl: enable or disable gun stroke
+--
+-- Output parameters:
+-- status: Return status. Zero: success. Non-zero: Error (can be posted by post_err)
+--
+
+---------------------------------------------------------------------------------------
+ROUTINE set_weld_sim(enbl:BOOLEAN; status:INTEGER) from swutils
+--
+-- enable/disable weld sim
+--
+-- Input parameters:
+-- enbl: enable or disable weld sim
+--
+-- Output parameters:
+-- status: Return status. Zero: success. Non-zero: Error (can be posted by post_err)
+--
+
+---------------------------------------------------------------------------------------
+ROUTINE set_tryout_mode(enbl:BOOLEAN; status:INTEGER) from swutils
+--
+-- enable/disable tryout mode
+--
+-- Input parameters:
+-- enbl: enable or disable tryout mode
+--
+-- Output parameters:
+-- status: Return status. Zero: success. Non-zero: Error (can be posted by post_err)
+--

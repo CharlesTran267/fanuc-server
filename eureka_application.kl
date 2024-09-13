@@ -269,10 +269,10 @@ BEGIN
     SELECT motion_type OF
         CASE(LIN):
             -- linear movement
-            RUN_TASK('EUREKA_MOVE_LIN_2', 1, FALSE, TRUE, 1, status)
+            RUN_TASK('EUREKA_MOVE_LIN', 1, FALSE, FALSE, 1, status)
         CASE(PTP):
             -- joint movement
-           RUN_TASK('EUREKA_MOVE_PTP_2', 1, FALSE, TRUE, 1, status)
+           RUN_TASK('EUREKA_MOVE_PTP', 1, FALSE, FALSE, 1, status)
         ELSE:
             res_array[1] = FAILED
             res_array[2] = 'Invalid motion type'
@@ -365,23 +365,16 @@ BEGIN
         res_array[2] = 'Failed to store cont value in PR[83]'
         RETURN
     ENDIF
-
-    -- Reset stop register
-    SET_INT_REG(80, 0, status)
-    IF status <> 0 THEN
-        res_array[1] = FAILED
-        res_array[2] = 'Failed to reset stop signal'
-        RETURN
-    ENDIF
-
-
+    
+    
+   WRITE('CALLING TP PROGRAM TO MOVE WITH POSE')
     SELECT motion_type OF
         CASE(LIN):
             -- linear movement
-            CALL_PROGLIN('EUREKA_MOVE_LIN_2', 1, prog_index, FALSE)
+            RUN_TASK('EUREKA_MOVE_LIN', 1, FALSE, FALSE, 1, status)
         CASE(PTP):
             -- joint movement
-            CALL_PROGLIN('EUREKA_MOVE_PTP_2', 1, prog_index, FALSE)
+            RUN_TASK('EUREKA_MOVE_PTP', 1, FALSE, FALSE, 1, status)
         ELSE:
             res_array[1] = FAILED
             res_array[2] = 'Invalid motion type'
@@ -410,8 +403,8 @@ BEGIN
 	timeout = timeout * 1000
 	DELAY 100
 	WHILE timeout > 0 DO
-		GET_TSK_INFO('EUREKA_MOVE_PTP_2', 0, TSK_STATUS, mv_ptp_info, value_str, status_ptp)
-		GET_TSK_INFO('EUREKA_MOVE_LIN_2', 0, TSK_STATUS, mv_lin_info, value_str, status_lin)
+		GET_TSK_INFO('EUREKA_MOVE_PTP', 0, TSK_STATUS, mv_ptp_info, value_str, status_ptp)
+		GET_TSK_INFO('EUREKA_MOVE_LIN', 0, TSK_STATUS, mv_lin_info, value_str, status_lin)
 		
 		IF ((status_ptp = 0) AND (mv_ptp_info = 0)) OR ((status_lin = 0) AND (mv_lin_info = 0)) THEN
 			DELAY 100
@@ -430,14 +423,14 @@ BEGIN
 		RETURN
 	ENDIF
 	
-	GET_TSK_INFO('EUREKA_MOVE_PTP_2', 0, TSK_STATUS, mv_ptp_info, value_str, status_ptp)
-	GET_TSK_INFO('EUREKA_MOVE_LIN_2', 0, TSK_STATUS, mv_lin_info, value_str, status_lin)
+	GET_TSK_INFO('EUREKA_MOVE_PTP', 0, TSK_STATUS, mv_ptp_info, value_str, status_ptp)
+	GET_TSK_INFO('EUREKA_MOVE_LIN', 0, TSK_STATUS, mv_lin_info, value_str, status_lin)
 	
 	-- IF movement is paused
 	IF ((status_ptp = 0) AND (mv_ptp_info = 1)) OR ((status_lin = 0) AND (mv_lin_info = 1)) THEN
 		-- Try to abort movement tasks
-		ABORT_TASK('EUREKA_MOVE_PTP_2', TRUE, TRUE, status_ptp)
-		ABORT_TASK('EUREKA_MOVE_LIN_2', TRUE, TRUE, status_lin)
+		ABORT_TASK('EUREKA_MOVE_PTP', TRUE, TRUE, status_ptp)
+		ABORT_TASK('EUREKA_MOVE_LIN', TRUE, TRUE, status_lin)
 		res_array[1] = FAILED
 		res_array[2] = 'Movement is paused! Something wrong occured!'
 		RETURN
@@ -462,10 +455,10 @@ BEGIN
 	res_array[1] = FAILED
 	 res_array[2] = 'Failed to stop movementl'
 	 
-	 GET_TSK_INFO('EUREKA_MOVE_PTP_2', 0, TSK_STATUS, mv_ptp_info, value_str, status_ptp)
+	 GET_TSK_INFO('EUREKA_MOVE_PTP', 0, TSK_STATUS, mv_ptp_info, value_str, status_ptp)
 	 -- If moving ptp
 	IF (status_ptp = 0) AND (mv_ptp_info = 0) THEN
-	ABORT_TASK('EUREKA_MOVE_PTP_2', TRUE, TRUE, status)
+	ABORT_TASK('EUREKA_MOVE_PTP', TRUE, TRUE, status)
 		IF status <> 0 THEN
 	        RETURN
 	ENDIF
@@ -475,9 +468,9 @@ BEGIN
 	ENDIF
 	
 	-- If moving linear
-	GET_TSK_INFO('EUREKA_MOVE_LIN_2', 0, TSK_STATUS, mv_ptp_info, value_str, status_ptp)
+	GET_TSK_INFO('EUREKA_MOVE_LIN', 0, TSK_STATUS, mv_ptp_info, value_str, status_ptp)
 	IF (status_ptp = 0) AND (mv_ptp_info = 0) THEN
-	ABORT_TASK('EUREKA_MOVE_LIN_2', TRUE, TRUE, status)
+	ABORT_TASK('EUREKA_MOVE_LIN', TRUE, TRUE, status)
 		IF status <> 0 THEN
 	        	RETURN
 		ENDIF

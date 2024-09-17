@@ -292,10 +292,13 @@ END MV_W_JOINT
 
 ROUTINE MV_W_POSE(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
 VAR
+   entry:			INTEGER
     in_pos:               XYZWPREXT
 
     motion_type:            INTEGER
-    velocity:               INTEGER
+    velocity:               REAL
+    velocity_per:	      REAL
+    speed_lim:		REAL
     accel:           INTEGER
     cont:                   INTEGER
     next:                   INTEGER
@@ -338,18 +341,37 @@ BEGIN
         RETURN
     ENDIF
 
-    -- Put joint positions to PR[81]
+    -- Put pose to PR[81]
     SET_POS_REG(81, (in_pos), status)
     IF status <> 0 THEN
         res_array[1] = FAILED
-        res_array[2] = 'Failed to store pose configuration in PR[99]'
+        res_array[2] = 'Failed to store pose configuration in PR[81]'
         RETURN
     ENDIF
 
     WRITE('Processing Velocity :', req_array[5], CR);
     -- Get vel_val put it to R[81]
-    CNV_STR_INT(req_array[5], velocity)
-    SET_INT_REG(81, velocity, status)
+    CNV_STR_REAL(req_array[5], velocity_per)
+    SELECT motion_type OF
+        CASE(LIN):
+            -- linear movement, speed has to specify in mm/s not percentage
+           GET_VAR(entry, '*SYSTEM*', '$PARAM_GROUP[1].$SPEEDLIM', speed_lim, status)
+	    IF status <> 0 THEN
+	        res_array[1] = FAILED
+	        res_array[2] = 'Failed to get speed limit system variable'
+	        RETURN
+	    ENDIF
+	    velocity = speed_lim*velocity_per/100
+        CASE(PTP):
+            -- joint movement
+            velocity = velocity_per
+        ELSE:
+            res_array[1] = FAILED
+            res_array[2] = 'Invalid motion type'
+            RETURN
+    ENDSELECT
+
+    SET_REAL_REG(81, velocity, status)
     IF status <> 0 THEN
         res_array[1] = FAILED
         res_array[2] = 'Failed to store velocity in R[81]'
@@ -1111,6 +1133,8 @@ END HND_REQ
 ROUTINE STATUS_CB(rbt_sts:INTEGER; rsp: STRING) : BOOLEAN
 VAR
     cur_rbt_sts:   INTEGER
+    entry:			INTEGER
+    safety_sts:	INTEGER
     port_type:          INTEGER
     port_no:            INTEGER
     value:              INTEGER
@@ -1137,20 +1161,17 @@ BEGIN
     res_array_sz = 2
     cur_rbt_sts = 0
 
-
-    GET_PORT_VAL(13, 1, value, status)
-    IF (status = 0) AND (value = 1) THEN
-        cur_rbt_sts = cur_rbt_sts OR EMGOP
-    ENDIF
-
-    GET_PORT_VAL(13, 2, value, status)
-    IF (status = 0) AND (value = 1) THEN
-        cur_rbt_sts = cur_rbt_sts OR EMGTP
-    ENDIF
-
-    GET_PORT_VAL(13, 7, value, status)
-    IF (status = 0) AND (value = 1) THEN
-        cur_rbt_sts = cur_rbt_sts OR EMGEX
+    GET_VAR(entry, '*SYSTEM*', '$MOR.$SAFETY_STAT', safety_sts, status)
+    IF (status = 0) THEN
+    	IF (safety_sts AND 1) <> 0 THEN
+    		cur_rbt_sts = cur_rbt_sts OR EMGOP
+    	ENDIF
+    	IF (safety_sts AND 2) <> 0 THEN
+    		cur_rbt_sts = cur_rbt_sts OR EMGTP
+    	ENDIF
+    	IF (safety_sts AND 64) <> 0 THEN
+    		cur_rbt_sts = cur_rbt_sts OR EMGEX
+    	ENDIF
     ENDIF
 
     GET_PORT_VAL(12, 21, value, status)

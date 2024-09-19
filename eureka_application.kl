@@ -1,29 +1,28 @@
 ROUTINE BREAKDWN_REQ(req: STRING; req_array_sz: INTEGER; req_array:	ARRAY OF STRING; delimiter: STRING)
 VAR
-    stop_index:             INTEGER
-    req_len:         INTEGER
-    sub_str_len:      INTEGER
-    sub_str_buf:      STRING[64]
-    rem_str_len:      INTEGER
-    rem_str_buf:      STRING[254]
+    stop_index:     INTEGER
+    req_len:        INTEGER
+    sub_str_len:    INTEGER
+    sub_str_buf:    STRING[64]
+    rem_str_len:    INTEGER
+    rem_str_buf:    STRING[254]
 
-    temp:                   STRING[4]
+    temp:           STRING[4]
 BEGIN
-
     req_array_sz = 0
     rem_str_buf = req
     rem_str_len = STR_LEN(req)
     WHILE rem_str_len <> 0 DO
-     req_array_sz = req_array_sz + 1
-     stop_index = INDEX(rem_str_buf, delimiter)
-     IF stop_index = 0 THEN
-        req_array[req_array_sz] = rem_str_buf
-        RETURN
-     ENDIF
-     sub_str_len = stop_index - 1
-     req_array[req_array_sz] = SUB_STR(rem_str_buf, 1, sub_str_len)
-     rem_str_len = rem_str_len - stop_index
-     rem_str_buf = SUB_STR(rem_str_buf, stop_index + 1, rem_str_len)
+        req_array_sz = req_array_sz + 1
+        stop_index = INDEX(rem_str_buf, delimiter)
+        IF stop_index = 0 THEN
+            req_array[req_array_sz] = rem_str_buf
+            RETURN
+        ENDIF
+        sub_str_len = stop_index - 1
+        req_array[req_array_sz] = SUB_STR(rem_str_buf, 1, sub_str_len)
+        rem_str_len = rem_str_len - stop_index
+        rem_str_buf = SUB_STR(rem_str_buf, stop_index + 1, rem_str_len)
     ENDWHILE
     
 END BREAKDWN_REQ
@@ -176,46 +175,222 @@ BEGIN
 
 END GET_RBT_POSE
 
+ROUTINE STRT_MV_LOOP(ret: BOOLEAN)
+VAR
+    status:     INTEGER
+BEGIN
+    RUN_TASK('EUREKA_MOVE_LOOP', 1, FALSE, FALSE, 1, status)
+    ret = (status = 0)
+END STRT_MV_LOOP
+
+ROUTINE RESTRT_LOOP(ret: BOOLEAN; err_msg: STRING)
+VAR
+    status:     INTEGER
+    successful: BOOLEAN
+BEGIN
+    ABORT_TASK('EUREKA_MOVE_LOOP', TRUE, TRUE, status)
+    IF status <> 0 THEN
+        ret = FALSE
+        err_msg = 'Failed to stop motion loop'
+        RETURN
+    ENDIF
+    DELAY 500
+    RUN_TASK('EUREKA_MOVE_LOOP', 1, FALSE, FALSE, 1, status)
+    ret = (status = 0)
+    err_msg = 'Failed to restart motion loop'
+END RESTRT_LOOP
+
+ROUTINE STRT_MOTOR(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    status:     INTEGER
+    ret:        BOOLEAN
+    value_str:  STRING[1]
+    prog_status:    INTEGER
+    err_msg:    STRING[64]
+BEGIN
+    -- Check if the motion loop is running
+    res_array_sz = 2
+    GET_TSK_INFO('EUREKA_MOVE_LOOP', 0, TSK_STATUS, prog_status, value_str, status)
+    IF (status = 0 ) AND (prog_status = 0) THEN
+        RESTRT_LOOP(ret, err_msg)
+        IF ret = FALSE THEN
+            res_array[1] = FAILED
+            res_array[2] = err_msg
+            RETURN
+        ENDIF
+        res_array[1] = SUCCESS
+        res_array[2] = 'Restart motion loop successfully'
+        RETURN
+    ENDIF
+
+    STRT_MV_LOOP(ret)
+    IF ret = FALSE THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to start motion loop'
+        RETURN
+    ENDIF
+
+    res_array[1] = SUCCESS
+    res_array[2] = 'Start motion loop successfully'
+END STRT_MOTOR
+
+ROUTINE STOP_LOOP(ret: BOOLEAN; err_msg: STRING)
+VAR
+    status:     INTEGER
+BEGIN
+    ABORT_TASK('EUREKA_MOVE_LOOP', TRUE, TRUE, status)
+    IF status <> 0 THEN
+        ret = FALSE
+        err_msg = 'Failed to stop motion loop'
+        RETURN
+    ENDIF
+    ret = TRUE
+    err_msg = 'Stop motion loop successfully'
+END STOP_LOOP
+
+ROUTINE STOP_MOTOR(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+    status:     INTEGER
+    ret:        BOOLEAN
+    err_msg:    STRING[64]
+BEGIN
+    res_array_sz = 2
+    STOP_LOOP(ret, err_msg)
+    IF ret = FALSE THEN
+        res_array[1] = FAILED
+        res_array[2] = err_msg
+        RETURN
+    ENDIF
+    res_array[1] = SUCCESS
+    res_array[2] = 'Stop motion loop successfully'
+END STOP_MOTOR
+
+ROUTINE IS_RDY_NXT(ret: BOOLEAN)
+VAR
+    status:     INTEGER
+    prog_status:    INTEGER
+BEGIN
+    GET_PORT_VAL(2, 512, prog_status, status)
+    IF (status <> 0 ) OR (prog_status <> 1) THEN
+        ret = FALSE
+        RETURN
+    ENDIF
+    ret = TRUE
+END IS_RDY_NXT
+
+ROUTINE STRT_MV(req_array: ARRAY OF STRING; res_array: ARRAY OF STRING)
+VAR
+    velocity:               REAL
+    velocity_per:            REAL
+    motion_type:            INTEGER
+    accel:           INTEGER
+    cont:                   INTEGER
+    entry:                  INTEGER
+    speed_lim:		REAL
+    status:                 INTEGER
+    prog_status:		INTEGER
+    timeout:		INTEGER
+CONST
+    PTP = 1
+    LIN = 2
+BEGIN
+
+    WRITE('Processing Motion Type :', req_array[2], CR);
+    CNV_STR_INT(req_array[2], motion_type)
+    SET_INT_REG(80, motion_type, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to store motion type in R[80]'
+        RETURN
+    ENDIF
+
+    WRITE('Processing Velocity :', req_array[4], CR);
+    -- Get vel_val put it to R[81]
+    CNV_STR_REAL(req_array[4], velocity_per)
+    SELECT motion_type OF
+        CASE(LIN):
+            -- linear movement, speed has to specify in mm/s not percentage
+           GET_VAR(entry, '*SYSTEM*', '$PARAM_GROUP[1].$SPEEDLIM', speed_lim, status)
+	    IF status <> 0 THEN
+	        res_array[1] = FAILED
+	        res_array[2] = 'Failed to get speed limit system variable'
+	        RETURN
+	    ENDIF
+	    velocity = speed_lim*velocity_per/100
+        CASE(PTP):
+            -- joint movement
+            velocity = velocity_per
+        ELSE:
+            res_array[1] = FAILED
+            res_array[2] = 'Invalid motion type'
+            RETURN
+    ENDSELECT
+
+    WRITE('Processing CONT Type :', req_array[5], CR);
+    -- Get CNT value and put it to R[83]
+    CNV_STR_INT(req_array[5], cont)
+    SET_INT_REG(83, cont, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to store cont value in PR[83]'
+        RETURN
+    ENDIF
+
+    -- Turn on Flag[100] to indicate that there is a new target
+    SET_PORT_VAL(35, 100, 1, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to set flag[100]'
+        RETURN
+    ENDIF
+
+    -- Wait for movement to start
+    timeout = 10000
+    GET_PORT_VAL(2, 512, prog_status, status)
+    WHILE (status = 0) AND (prog_status <> 0) AND (timeout > 0) DO
+        GET_PORT_VAL(2, 512, prog_status, status)
+        DELAY 10
+        timeout = timeout - 10
+    ENDWHILE
+
+    IF timeout <= 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Timeout while waiting for movement to start'
+        RETURN
+    ENDIF
+    
+    res_array[1] = SUCCESS
+    res_array[2] = 'Successfully starting movement'
+END STRT_MV
+
 ROUTINE MV_W_JOINT(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
 VAR
     joints:        JOINTPOS
-
-    motion_type:            INTEGER
-    velocity:               INTEGER
-    accel:           INTEGER
-    cont:                   INTEGER
-    next:                   INTEGER
 
     out_pose:               POSITION
     wjnt_cfg:               CONFIG
     ext_ang:                ARRAY[8] OF REAL
     
-    start_index:            INTEGER
-    prog_index:             INTEGER
-    i:                      INTEGER
     status:                 INTEGER
-
     ret:                    BOOLEAN
     err_msg:                STRING[64]
-CONST
-
-    PTP = 1
-    LIN = 2
-
 BEGIN
-
     res_array_sz = 2
 
-    WRITE('Processing Motion Type :', req_array[2], CR);
-    CNV_STR_INT(req_array[2], motion_type)
-
+    IS_RDY_NXT(ret)
+    IF ret = FALSE THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Program is not ready for next command'
+        RETURN
+    ENDIF
+       
     ret = BKD_JOINT(req_array[3], joints, err_msg)
     IF ret = FALSE THEN
         res_array[1] = FAILED 
         res_array[2] = err_msg
         RETURN
     ENDIF
-
+    
     WRITE('Testing reachability', CR)
     -- Convert joint angles to a cartesian position
     -- Sanity check for reacability
@@ -235,98 +410,30 @@ BEGIN
         RETURN
     ENDIF
 
-    WRITE('Processing Velocity :', req_array[4], CR);
-    -- Get vel_val put it to R[81]
-    CNV_STR_INT(req_array[4], velocity)
-    SET_INT_REG(81, velocity, status)
-    IF status <> 0 THEN
-        res_array[1] = FAILED
-        res_array[2] = 'Failed to store velocity in R[81]'
-        RETURN
-    ENDIF
-
-
-    WRITE('Processing CONT Type :', req_array[5], CR);
-    -- Get CNT value and put it to R[83]
-    CNV_STR_INT(req_array[5], cont)
-    SET_INT_REG(83, cont, status)
-    IF status <> 0 THEN
-        res_array[1] = FAILED
-        res_array[2] = 'Failed to store cont value in PR[83]'
-        RETURN
-    ENDIF
-
-    -- Reset stop register
-    SET_INT_REG(80, 0, status)
-    IF status <> 0 THEN
-        res_array[1] = FAILED
-        res_array[2] = 'Failed to reset stop signal'
-        RETURN
-    ENDIF
-
-    WRITE('CALLING TP PROGRAM MOVE', CR);
-
-    SELECT motion_type OF
-        CASE(LIN):
-            -- linear movement
-            RUN_TASK('EUREKA_MOVE_LIN', 1, FALSE, FALSE, 1, status)
-        CASE(PTP):
-            -- joint movement
-           RUN_TASK('EUREKA_MOVE_PTP', 1, FALSE, FALSE, 1, status)
-        ELSE:
-            res_array[1] = FAILED
-            res_array[2] = 'Invalid motion type'
-            RETURN
-    ENDSELECT
+    STRT_MV(req_array, res_array) 
     
-    IF status <> 0 THEN
-    	res_array[1] = FAILED
-    	res_array[2] = 'Failed to move to target'
-    	RETURN
-    ENDIF
-
-    res_array[1] = SUCCESS
-    res_array[2] = 'Motion Complete'
-
 END MV_W_JOINT
 
 ROUTINE MV_W_POSE(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
 VAR
-   entry:			INTEGER
+    entry:			INTEGER
     in_pos:               XYZWPREXT
-
-    motion_type:            INTEGER
-    velocity:               REAL
-    velocity_per:	      REAL
-    speed_lim:		REAL
-    accel:           INTEGER
-    cont:                   INTEGER
-    next:                   INTEGER
-
-    out_pose:               POSITION
-    wjnt_cfg:               CONFIG
-    ext_ang:                ARRAY[8] OF REAL
     
-    start_index:            INTEGER
-    prog_index:             INTEGER
-    i:                      INTEGER
     status:                 INTEGER
-
     ret:                    BOOLEAN
     err_msg:                STRING[64]
-CONST
-
-    PTP = 1
-    LIN = 2
-
 BEGIN
-
     res_array_sz = 2
 
-    WRITE('Processing Motion Type :', req_array[2], CR);
-    CNV_STR_INT(req_array[2], motion_type)
+    -- Check if the program is ready for next command
+    IS_RDY_NXT(ret) 
+    IF ret = FALSE THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Program is not ready for next command'
+        RETURN
+    ENDIF
 
-    ret = BKD_RBT_POSE(req_array[3], req_array[4], in_pos, err_msg)
+    ret = BKD_RBT_POSE(req_array[3], req_array[6], in_pos, err_msg)
     IF ret = FALSE THEN
         res_array[1] = FAILED 
         res_array[2] = err_msg
@@ -349,70 +456,64 @@ BEGIN
         RETURN
     ENDIF
 
-    WRITE('Processing Velocity :', req_array[5], CR);
-    -- Get vel_val put it to R[81]
-    CNV_STR_REAL(req_array[5], velocity_per)
-    SELECT motion_type OF
-        CASE(LIN):
-            -- linear movement, speed has to specify in mm/s not percentage
-           GET_VAR(entry, '*SYSTEM*', '$PARAM_GROUP[1].$SPEEDLIM', speed_lim, status)
-	    IF status <> 0 THEN
-	        res_array[1] = FAILED
-	        res_array[2] = 'Failed to get speed limit system variable'
-	        RETURN
-	    ENDIF
-	    velocity = speed_lim*velocity_per/100
-        CASE(PTP):
-            -- joint movement
-            velocity = velocity_per
-        ELSE:
-            res_array[1] = FAILED
-            res_array[2] = 'Invalid motion type'
-            RETURN
-    ENDSELECT
-
-    SET_REAL_REG(81, velocity, status)
-    IF status <> 0 THEN
-        res_array[1] = FAILED
-        res_array[2] = 'Failed to store velocity in R[81]'
-        RETURN
-    ENDIF
-
-    WRITE('Processing CONT Type :', req_array[6], CR);
-    -- Get CNT value and put it to R[83]
-    CNV_STR_INT(req_array[6], cont)
-    SET_INT_REG(83, cont, status)
-    IF status <> 0 THEN
-        res_array[1] = FAILED
-        res_array[2] = 'Failed to store cont value in PR[83]'
-        RETURN
-    ENDIF
-    
-    
-   WRITE('CALLING TP PROGRAM TO MOVE WITH POSE')
-    SELECT motion_type OF
-        CASE(LIN):
-            -- linear movement
-            RUN_TASK('EUREKA_MOVE_LIN', 1, FALSE, FALSE, 1, status)
-        CASE(PTP):
-            -- joint movement
-            RUN_TASK('EUREKA_MOVE_PTP', 1, FALSE, FALSE, 1, status)
-        ELSE:
-            res_array[1] = FAILED
-            res_array[2] = 'Invalid motion type'
-            RETURN
-    ENDSELECT
-    
-    IF status <> 0 THEN
-        res_array[1] = FAILED
-        res_array[2] = 'Failed to move to target'
-        RETURN
-    ENDIF
-
-    res_array[1] = SUCCESS
-    res_array[2] = 'Motion Complete'
-
+    STRT_MV(req_array, res_array)
 END MV_W_POSE
+
+ROUTINE IS_MV_LP_RUN(ret: BOOLEAN)
+VAR
+    status:     INTEGER
+    prog_status:    INTEGER
+    value_str:  STRING[1]
+BEGIN
+    GET_TSK_INFO('EUREKA_MOVE_LOOP', 0, TSK_STATUS, prog_status, value_str, status)
+    IF (status = 0 ) AND (prog_status = 0) THEN
+        ret = TRUE
+        RETURN
+    ENDIF
+    ret = FALSE
+END IS_MV_LP_RUN
+
+ROUTINE WAIT_RDY_NXT(req_array_sz: INTEGER; req_array: ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
+VAR
+	timeout:    REAL
+    rdy:        BOOLEAN
+    loop_run:   BOOLEAN
+BEGIN
+	res_array_sz = 2
+	
+    IS_MV_LP_RUN(loop_run)
+    IF loop_run = FALSE THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Motion loop is not running'
+        RETURN
+    ENDIF
+
+	CNV_STR_REAL(req_array[2], timeout)
+	timeout = timeout * 1000
+	
+	IS_RDY_NXT(rdy)
+	WHILE (rdy = FALSE) AND (timeout > 0) DO
+        IS_MV_LP_RUN(loop_run)
+        IF loop_run = FALSE THEN
+            res_array[1] = FAILED
+            res_array[2] = 'Motion loop is not running'
+            RETURN
+        ENDIF
+		IS_RDY_NXT(rdy)
+		DELAY 10
+		timeout = timeout - 10
+	ENDWHILE	
+	
+	IF timeout <= 0 THEN
+		res_array[1] = FAILED
+		res_array[2] = 'Timeout while waiting for program to be ready for next command'
+		RETURN
+	ENDIF
+	
+	res_array[1] = SUCCESS
+	res_array[2] = 'Program is ready for next command'
+	
+END WAIT_RDY_NXT
 
 ROUTINE SET_TRAJ_TAR(req_array_sz: INTEGER; req_array: ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
 VAR
@@ -426,6 +527,13 @@ CONST
 BEGIN
 	res_array_sz = 2
 	
+    IS_RDY_NXT(ret)
+    IF ret = FALSE THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Program is not ready for next command'
+        RETURN
+    ENDIF
+
 	WRITE('Processing target index', CR)
 	CNV_STR_INT(req_array[2], tar_idx)
 	
@@ -453,167 +561,112 @@ VAR
 	cont:			INTEGER
 	
 	status:			INTEGER
+    prog_status:	INTEGER
+    ret:            BOOLEAN
+    timeout:        INTEGER
 BEGIN
 	res_array_sz = 2
+
+    IS_RDY_NXT(ret)
+    IF ret = FALSE THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Program is not ready for next command'
+        RETURN
+    ENDIF
+
+    -- Set motion type to trajectory
+    SET_INT_REG(80, 0, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to store motion type to register 80'
+        RETURN
+    ENDIF
+
 	CNV_STR_INT(req_array[2], num_target)
-	CNV_STR_INT(req_array[3], velocity)
-	CNV_STR_INT(req_array[4], cont)
-	
-	SET_INT_REG(80, num_target, status)
+	SET_INT_REG(84, num_target, status)
 	IF status <> 0 THEN
 		res_array[1] = FAILED
-		res_array[2] = 'Failed to store num target to register 80'
+		res_array[2] = 'Failed to store num target to register 84'
 	ENDIF
 	
+	CNV_STR_INT(req_array[3], velocity)
 	SET_INT_REG(81, velocity, status)
 	IF status <> 0 THEN
 		res_array[1] = FAILED
 		res_array[2] = 'Failed to store velocity to register 81'
 	ENDIF
 	
+	CNV_STR_INT(req_array[4], cont)
 	SET_INT_REG(83, cont, status)
 	IF status <> 0 THEN
 		res_array[1] = FAILED
 		res_array[2] = 'Failed to store cont to register 83'
 	ENDIF
-	
-	RUN_TASK('EUREKA_MOVE_TRAJ', 1, FALSE, FALSE, 1, status)
-	IF status <> 0 THEN
-		res_array[1] = FAILED
-		res_array[2] = 'Failed to execute trajectory'
-	ENDIF
+
+	-- Turn on Flag[100] to indicate that there is a new target
+    SET_PORT_VAL(35, 100, 1, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to set flag[100]'
+        RETURN
+    ENDIF
+
+    -- Wait for movement to start
+    timeout = 10000
+    GET_PORT_VAL(2, 512, prog_status, status)
+    WHILE (status = 0) AND (prog_status <> 0) AND (timeout > 0) DO
+        GET_PORT_VAL(2, 512, prog_status, status)
+        DELAY 10
+        timeout = timeout - 10
+    ENDWHILE
+
+    IF timeout <= 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Timeout while waiting for movement to start'
+        RETURN
+    ENDIF
 	
 	res_array[1] = SUCCESS
 	res_array[2] = 'Successfully start executing trajectory'
 	
 END EXECUTE_TRAJ
 
-ROUTINE WAIT_MV_FIN(req_array_sz: INTEGER; req_array: ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
-VAR
-	status:			INTEGER
-	timeout:			REAL
-	mv_info:		INTEGER
-	value_str: 		STRING[1]
-	time_reached:	BOOLEAN
-	
-	running_task:	STRING[64]
-BEGIN
-	res_array_sz = 2
-	
-	GET_TSK_INFO('EUREKA_MOVE_PTP', 0, TSK_STATUS, mv_info, value_str, status)
-	IF (status = 0) AND (mv_info = 0) THEN
-		running_task = 'EUREKA_MOVE_PTP'
-	ELSE
-		GET_TSK_INFO('EUREKA_MOVE_LIN', 0, TSK_STATUS, mv_info, value_str, status)
-		IF (status = 0) AND (mv_info = 0) THEN
-			running_task = 'EUREKA_MOVE_LIN'
-		ELSE
-			GET_TSK_INFO('EUREKA_MOVE_TRAJ', 0, TSK_STATUS, mv_info, value_str, status)
-			IF (status = 0) AND (mv_info = 0) THEN
-				running_task = 'EUREKA_MOVE_TRAJ'
-			ELSE
-				res_array[1] = SUCCESS
-				res_array[2] = 'No running movement task found'
-				RETURN
-			ENDIF
-		ENDIF
-	ENDIF
-	
-	CNV_STR_REAL(req_array[2], timeout)
-	-- Convert timeout to miliseconds
-	timeout = timeout * 1000
-	time_reached = FALSE
-	
-	WHILE timeout > 0 DO
-		GET_TSK_INFO(running_task, 0, TSK_STATUS, mv_info, value_str, status)
-		IF (status = 0) AND (mv_info = 0) THEN
-			-- task is running
-			DELAY 100
-			timeout = timeout -100
-			IF timeout <= 0 THEN
-				time_reached = TRUE
-			ENDIF
-		ELSE
-			timeout = 0
-		ENDIF
-	ENDWHILE
-	
-	IF time_reached = TRUE THEN
-		res_array[1] = FAILED
-		res_array[2] = 'Timeout reached! Failed to wait for movement to finish'
-		RETURN
-	ENDIF
-	
-	GET_TSK_INFO(running_task, 0, TSK_STATUS, mv_info, value_str, status)
-	-- IF movement is paused
-	IF (status = 0) AND (mv_info = 1) THEN
-		-- Try to abort movement task
-		ABORT_TASK(running_task, TRUE, TRUE, status)
-		res_array[1] = FAILED
-		res_array[2] = 'Movement is paused! Something wrong occured!'
-		RETURN
-	ENDIF
-	
-	res_array[1] = SUCCESS
-	res_array[2] = 'Movement finished within timeout!'
-END WAIT_MV_FIN
-
 ROUTINE STOP_MOVE(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
 VAR
-	status:	INTEGER
-	mv_info:	INTEGER
-	value_str: 	STRING[1]
+    ret:        BOOLEAN
+    status:     INTEGER
+    err_msg:    STRING[64]
+    restart:    INTEGER
 BEGIN
-    -- CANCEL GROUP[1]
 	res_array_sz = 2
 
-	res_array[1] = FAILED
-	 res_array[2] = 'Failed to stop movementl'
-	 
-	 GET_TSK_INFO('EUREKA_MOVE_PTP', 0, TSK_STATUS, mv_info, value_str, status)
-	 -- If moving ptp
-	IF (status = 0) AND (mv_info = 0) THEN
-		ABORT_TASK('EUREKA_MOVE_PTP', TRUE, TRUE, status)
-		IF status <> 0 THEN
-			res_array[1] = FAILED
-			res_array[2] = 'Failed to abort move_ptp task'
-		ELSE
-			res_array[1] = SUCCESS
-	    		res_array[2] = 'Motion Cancelled'
-		ENDIF
-		RETURN
-	ENDIF
-	
-	-- If moving linear
-	GET_TSK_INFO('EUREKA_MOVE_LIN', 0, TSK_STATUS, mv_info, value_str, status)
-	IF (status = 0) AND (mv_info = 0) THEN
-		ABORT_TASK('EUREKA_MOVE_LIN', TRUE, TRUE, status)
-		IF status <> 0 THEN
-			res_array[1] = FAILED
-			res_array[2] = 'Failed to abort move_lin task'
-		ELSE
-			res_array[1] = SUCCESS
-	    		res_array[2] = 'Motion Cancelled'
-		ENDIF
-		RETURN
-	ENDIF
-	
-	-- If moving trajectory
-	GET_TSK_INFO('EUREKA_MOVE_TRAJ', 0, TSK_STATUS, mv_info, value_str, status)
-	IF (status = 0) AND (mv_info = 0) THEN
-		ABORT_TASK('EUREKA_MOVE_TRAJ', TRUE, TRUE, status)
-		IF status <> 0 THEN
-			res_array[1] = FAILED
-			res_array[2] = 'Failed to abort move_traj task'
-		ELSE
-			res_array[1] = SUCCESS
-	    		res_array[2] = 'Motion Cancelled'
-		ENDIF
-		RETURN
-	ENDIF
-	
-	res_array[1] = SUCCESS
-	res_array[2] = 'No running movement task found'
+    CNV_STR_INT(req_array[2], restart)
+    -- set stopping flag
+    SET_PORT_VAL(35, 101, 1, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to set stopping flag'
+        RETURN
+    ENDIF
+    IF restart = 1 THEN
+	    RESTRT_LOOP(ret, err_msg)
+    ELSE
+        STOP_LOOP(ret, err_msg)
+    ENDIF
+    SET_PORT_VAL(35, 101, 0, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to reset stopping flag'
+        RETURN
+    ENDIF
+    IF ret = FALSE THEN
+        res_array[1] = FAILED
+        res_array[2] = err_msg
+        RETURN
+    ENDIF
+    
+    res_array[1] = SUCCESS
+    res_array[2] = 'Successfully stop motion'
 END STOP_MOVE
 
 ROUTINE SET_ACCEL(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
@@ -1064,7 +1117,6 @@ BEGIN
     CNV_INT_STR(value, 16, 0, t_value)
     res_array[2] = t_value
 
-
 END READ_IO
 
 ROUTINE WRITE_IO(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
@@ -1175,7 +1227,9 @@ CONST
     -- WRITE_VARIABLE = 22
     GET_LST_ERR = 23
     RESET_ERROR = 24
-    WAIT_MV = 25
+    WAIT_RDY = 25
+    STRT_MTR = 26
+    STOP_MTR = 27
 BEGIN
 
     BREAKDWN_REQ(req, req_array_sz, req_array, MSG_DEL)
@@ -1232,12 +1286,16 @@ BEGIN
             GET_ERROR(req_array_sz, req_array, res_array_sz, res_array)
         CASE(RESET_ERROR):
             RST_CTR(req_array_sz, req_array, res_array_sz, res_array)
-        CASE(WAIT_MV):
-        	WAIT_MV_FIN(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(WAIT_RDY):
+        	WAIT_RDY_NXT(req_array_sz, req_array, res_array_sz, res_array)
         CASE(SET_EX_TR_DA):
         	SET_TRAJ_TAR(req_array_sz, req_array, res_array_sz, res_array)
         CASE(EXC_TRAJ):
         	EXECUTE_TRAJ(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(STRT_MTR):
+            STRT_MOTOR(req_array_sz, req_array, res_array_sz, res_array)
+        CASE(STOP_MTR):
+            STOP_MOTOR(req_array_sz, req_array, res_array_sz, res_array)
         ELSE:
             res_array[1] = FAILED
             res_array[2] = 'Invalid command.'
@@ -1256,8 +1314,7 @@ VAR
     port_type:          INTEGER
     port_no:            INTEGER
     value:              INTEGER
-    motion_sts:	INTEGER
-    control_sts:	INTEGER
+    prog_status:	INTEGER
     value_str:		STRING[1]
     status:             INTEGER
 
@@ -1274,11 +1331,24 @@ CONST
     SYSRDY      = 64
     IS_CNT_RUN = 128
     IS_MON_RUN = 256
+    IS_LOOP_RUN = 512
 
 BEGIN
     res_array_sz = 2
     cur_rbt_sts = 0
 
+    -- * Bit position for $safety_stat
+    -- MFS_EMGOP 1
+    -- MFS_EMGTP 2
+    -- MFS_DEADMAN 4
+    -- MFS_FENCE 8
+    -- MFS_ROT 16
+    -- MFS_HBK 32
+    -- MFS_EMGEX 64
+    -- MFS_PPABN 128
+    -- MFS_BELTBREAK 256
+    -- MFS_ENABLE 512
+    -- MFS_FALM 1024
     GET_VAR(entry, '*SYSTEM*', '$MOR.$SAFETY_STAT', safety_sts, status)
     IF (status = 0) THEN
     	IF (safety_sts AND 1) <> 0 THEN
@@ -1312,15 +1382,22 @@ BEGIN
         cur_rbt_sts = cur_rbt_sts OR SYSRDY
     ENDIF
     
-    GET_TSK_INFO('EUK_CNT_SRV', 0, TSK_STATUS, control_sts, value_str, status)
-    IF (status = 0) AND (control_sts = 0) THEN
+    GET_TSK_INFO('EUK_CNT_SRV', 0, TSK_STATUS, prog_status, value_str, status)
+    IF (status = 0) AND (prog_status = 0) THEN
     	cur_rbt_sts = cur_rbt_sts OR IS_CNT_RUN
     ENDIF
     
     
-    GET_TSK_INFO('EUK_MON_SRV', 0, TSK_STATUS, motion_sts, value_str, status)
-    IF (status = 0) AND (motion_sts = 0) THEN
+    GET_TSK_INFO('EUK_MON_SRV', 0, TSK_STATUS, prog_status, value_str, status)
+    IF (status = 0) AND (prog_status = 0) THEN
     	cur_rbt_sts = cur_rbt_sts OR IS_MON_RUN
+    ENDIF
+
+    GET_TSK_INFO('EUREKA_MOVE_LOOP', 0, TSK_STATUS, prog_status, value_str, status)
+    GET_PORT_VAL(35, 101, value, status)
+    -- if stopping flag is set, then still set the status to running
+    IF (status = 0) AND ((prog_status = 0) OR (value = 1)) THEN
+    	cur_rbt_sts = cur_rbt_sts OR IS_LOOP_RUN
     ENDIF
     
     res_array[1] = SUCCESS 

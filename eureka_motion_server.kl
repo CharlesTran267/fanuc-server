@@ -35,6 +35,11 @@ BEGIN
         WRITE('Failed to set default value for accel register R[82] = 100', CR);
     ENDIF
 
+	SET_PORT_VAL(35, 101, 0, status)
+	IF status <> 0 THEN
+		WRITE('Failed to reset stopping signal', CR);
+	ENDIF
+
 	WHILE TRUE DO
 		
 		-- start server communication

@@ -278,18 +278,31 @@ BEGIN
     ret = TRUE
 END IS_RDY_NXT
 
+ROUTINE PSTRT_TO_CNT(pass_start: INTEGER; cont: INTEGER)
+BEGIN
+    cont = pass_start
+END PSTRT_TO_CNT
+
+ROUTINE PSTRT_TO_DB(pass_start: INTEGER; distance_bf: INTEGER)
+BEGIN
+    distance_bf = pass_start
+END PSTRT_TO_DB
+
 ROUTINE STRT_MV(req_array: ARRAY OF STRING; res_array: ARRAY OF STRING)
 VAR
     velocity:               REAL
     velocity_per:            REAL
     motion_type:            INTEGER
     accel:           INTEGER
-    cont:                   INTEGER
+    pass_start:                   INTEGER
     entry:                  INTEGER
     speed_lim:		REAL
     status:                 INTEGER
     prog_status:		INTEGER
     timeout:		INTEGER
+
+    cont:                   INTEGER
+    distance_bf:            INTEGER
 CONST
     PTP = 1
     LIN = 2
@@ -326,13 +339,29 @@ BEGIN
             RETURN
     ENDSELECT
 
-    WRITE('Processing CONT Type :', req_array[5], CR);
-    -- Get CNT value and put it to R[83]
-    CNV_STR_INT(req_array[5], cont)
-    SET_INT_REG(83, cont, status)
+    WRITE('Processing pass_start :', req_array[5], CR);
+    -- Get pass_start value and put it to R[83]
+    CNV_STR_INT(req_array[5], pass_start)
+    SET_INT_REG(83, pass_start, status)
     IF status <> 0 THEN
         res_array[1] = FAILED
-        res_array[2] = 'Failed to store cont value in PR[83]'
+        res_array[2] = 'Failed to store pass_start value in R[83]'
+        RETURN
+    ENDIF
+
+    PSTRT_TO_CNT(pass_start, cont)
+    SET_INT_REG(79, cont, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to store cont value in R[79]'
+        RETURN
+    ENDIF
+
+    PSTRT_TO_DB(pass_start, distance_bf)
+    SET_INT_REG(78, distance_bf, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to store distance_before value in R[78]'
         RETURN
     ENDIF
 
@@ -558,6 +587,7 @@ ROUTINE EXECUTE_TRAJ(req_array_sz: INTEGER; req_array: ARRAY OF STRING; res_arra
 VAR
 	num_target:		INTEGER
 	velocity:			INTEGER
+    pass_start:		INTEGER
 	cont:			INTEGER
 	
 	status:			INTEGER
@@ -596,12 +626,20 @@ BEGIN
 		res_array[2] = 'Failed to store velocity to register 81'
 	ENDIF
 	
-	CNV_STR_INT(req_array[4], cont)
-	SET_INT_REG(83, cont, status)
+	CNV_STR_INT(req_array[4], pass_start)
+	SET_INT_REG(83, pass_start, status)
 	IF status <> 0 THEN
 		res_array[1] = FAILED
-		res_array[2] = 'Failed to store cont to register 83'
+		res_array[2] = 'Failed to store pass_start to register 83'
 	ENDIF
+
+    PSTRT_TO_CNT(pass_start, cont)
+    SET_INT_REG(79, cont, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to store cont value in R[79]'
+        RETURN
+    ENDIF
 
 	-- Turn on Flag[100] to indicate that there is a new target
     SET_PORT_VAL(35, 100, 1, status)

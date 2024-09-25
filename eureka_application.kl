@@ -285,7 +285,7 @@ END PSTRT_TO_CNT
 
 ROUTINE PSTRT_TO_DB(pass_start: INTEGER; distance_bf: INTEGER)
 BEGIN
-    distance_bf = pass_start*3
+    distance_bf = pass_start
 END PSTRT_TO_DB
 
 ROUTINE STRT_MV(req_array: ARRAY OF STRING; res_array: ARRAY OF STRING)

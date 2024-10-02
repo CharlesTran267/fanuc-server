@@ -181,6 +181,8 @@ VAR
 BEGIN
     RUN_TASK('EUREKA_MOVE_LOOP', 1, FALSE, FALSE, 1, status)
     ret = (status = 0)
+    -- Wait for motion loop to start
+    DELAY 100
 END STRT_MV_LOOP
 
 ROUTINE RESTRT_LOOP(ret: BOOLEAN; err_msg: STRING)
@@ -198,6 +200,8 @@ BEGIN
     RUN_TASK('EUREKA_MOVE_LOOP', 1, FALSE, FALSE, 1, status)
     ret = (status = 0)
     err_msg = 'Failed to restart motion loop'
+    -- Wait for motion loop to start
+    DELAY 100
 END RESTRT_LOOP
 
 ROUTINE STRT_MOTOR(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)

@@ -47,6 +47,7 @@ BEGIN
 
 		READ comm_file(req);
 		
+		rsp = ''
 		ret = STATUS_CB(rbt_sts, rsp);
 		WRITE comm_file(rsp);
 
@@ -65,7 +66,7 @@ BEGIN
 				GOTO new_conn
 			ENDIF
 		
-			
+			rsp = ''
 			ret = STATUS_CB(rbt_sts, rsp);
 			loop_count = loop_count + 1
 			

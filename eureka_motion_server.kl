@@ -58,6 +58,7 @@ BEGIN
 			
 			WRITE ('Recieved  from client : ', req, CR)
 			
+			rsp = ''
 			HND_REQ(req, rsp);
 			
 			WRITE ('Sending to client : ', rsp, CR)

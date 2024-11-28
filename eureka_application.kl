@@ -495,6 +495,7 @@ BEGIN
         RETURN
     ENDIF
 
+   WRITE('config string is: ', req_array[6], CR)
     ret = BKD_RBT_POSE(req_array[3], req_array[6], in_pos, err_msg)
     IF ret = FALSE THEN
         res_array[1] = FAILED 

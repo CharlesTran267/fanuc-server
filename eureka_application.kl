@@ -210,8 +210,8 @@ BEGIN
     -- set restarting flag
     SET_PORT_VAL(35, 101, 1, status)
     IF status <> 0 THEN
-        res_array[1] = FAILED
-        res_array[2] = 'Failed to set restarting flag'
+        ret = FALSE
+        err_msg = 'Failed to set restarting flag'
         RETURN
     ENDIF
     ABORT_TASK('EUREKA_MOVE_LOOP', TRUE, TRUE, status)
@@ -230,8 +230,8 @@ BEGIN
     -- reset restarting flag
     SET_PORT_VAL(35, 101, 0, status)
     IF status <> 0 THEN
-        res_array[1] = FAILED
-        res_array[2] = 'Failed to reset restarting flag'
+        ret = FALSE
+        err_msg = 'Failed to reset restarting flag'
         RETURN
     ENDIF
 END RESTRT_LOOP

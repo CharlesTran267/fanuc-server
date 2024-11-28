@@ -23,7 +23,6 @@ BEGIN
         req_array[req_array_sz] = SUB_STR(rem_str_buf, 1, sub_str_len)
         rem_str_len = rem_str_len - stop_index
         rem_str_buf = SUB_STR(rem_str_buf, stop_index + 1, rem_str_len)
-        WRITE('request array at idx ', req_array_sz, ' :',  req_array[req_array_sz], CR)
     ENDWHILE
     
 END BREAKDWN_REQ

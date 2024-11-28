@@ -63,6 +63,7 @@ BEGIN
     CNV_STR_REAL(in_pos_str[5], out_pose_xyz.p)
     CNV_STR_REAL(in_pos_str[6], out_pose_xyz.r)
     
+    
     WRITE('Config string is: ', conf_str, CR)
     CNV_STR_CONF(conf_str, out_pose_xyz.config_data, status)
     IF status <> 0 THEN

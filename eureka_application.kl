@@ -23,7 +23,7 @@ BEGIN
         req_array[req_array_sz] = SUB_STR(rem_str_buf, 1, sub_str_len)
         rem_str_len = rem_str_len - stop_index
         rem_str_buf = SUB_STR(rem_str_buf, stop_index + 1, rem_str_len)
-        WRITE('request array at idx ', req_array_sz, ' :',  ireq_array[req_array_sz], CR)
+        WRITE('request array at idx ', req_array_sz, ' :',  req_array[req_array_sz], CR)
     ENDWHILE
     
 END BREAKDWN_REQ
@@ -485,6 +485,7 @@ VAR
     status:                 INTEGER
     ret:                    BOOLEAN
     err_msg:                STRING[64]
+    i:				INTEGER
 BEGIN
     res_array_sz = 2
 
@@ -497,7 +498,7 @@ BEGIN
     ENDIF
 
     FOR i=1 TO ARRAY_LEN(req_array) DO 
-    	WRITE('request array at idx ', i, ' :',  ireq_array[i], CR)
+    	WRITE('request array at idx ', i, ' :',  req_array[i], CR)
     ENDFOR
     ret = BKD_RBT_POSE(req_array[3], req_array[6], in_pos, err_msg)
     IF ret = FALSE THEN

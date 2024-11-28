@@ -27,6 +27,18 @@ BEGIN
     
 END BREAKDWN_REQ
 
+ROUTINE GET_DFLT_FRM(default_pos:  XYZWPREXT) 
+VAR
+	status:	INTEGER
+BEGIN
+	default_pos.x = 0
+	default_pos.y = 0
+	default_pos.z = 0
+	default_pos.w = 0
+	default_pos.p = 0
+	default_pos.r = 0
+END GET_DFLT_FRM
+
 ROUTINE BKD_RBT_POSE(pose_str: STRING; conf_str: STRING; out_pose_xyz: XYZWPREXT; err_str: STRING) : BOOLEAN
 VAR
     status:             INTEGER
@@ -51,6 +63,11 @@ BEGIN
     CNV_STR_REAL(in_pos_str[5], out_pose_xyz.p)
     CNV_STR_REAL(in_pos_str[6], out_pose_xyz.r)
 
+    IF conf_str = '' THEN
+	conf_str = DEFAULT_CFG
+    ENDIF
+    
+    WRITE('Config string is: ', conf_str, CR)
     CNV_STR_CONF(conf_str, out_pose_xyz.config_data, status)
     IF status <> 0 THEN
         err_str = 'Frame Pose config invalid format'
@@ -190,6 +207,13 @@ VAR
     status:     INTEGER
     successful: BOOLEAN
 BEGIN
+    -- set restarting flag
+    SET_PORT_VAL(35, 101, 1, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to set restarting flag'
+        RETURN
+    ENDIF
     ABORT_TASK('EUREKA_MOVE_LOOP', TRUE, TRUE, status)
     IF status <> 0 THEN
         ret = FALSE
@@ -202,6 +226,14 @@ BEGIN
     err_msg = 'Failed to restart motion loop'
     -- Wait for motion loop to start
     DELAY 100
+  
+    -- reset restarting flag
+    SET_PORT_VAL(35, 101, 0, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to reset restarting flag'
+        RETURN
+    ENDIF
 END RESTRT_LOOP
 
 ROUTINE STRT_MOTOR(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
@@ -472,6 +504,8 @@ BEGIN
         res_array[2] = err_msg
         RETURN
     ENDIF
+    
+    WRITE('Moving to pose: ', in_pos, CR)
 
     WRITE('Testing reachability', CR)
     CHECK_EPOS((in_pos), $UFRAME, $UTOOL, status)
@@ -517,7 +551,7 @@ BEGIN
     IS_MV_LP_RUN(loop_run)
     IF loop_run = FALSE THEN
         res_array[1] = FAILED
-        res_array[2] = 'Motion loop is not running'
+        res_array[2] = 'Motion is interupted'
         RETURN
     ENDIF
 
@@ -529,7 +563,7 @@ BEGIN
         IS_MV_LP_RUN(loop_run)
         IF loop_run = FALSE THEN
             res_array[1] = FAILED
-            res_array[2] = 'Motion loop is not running'
+            res_array[2] = 'Motion is interupted'
             RETURN
         ENDIF
 		IS_RDY_NXT(rdy)
@@ -683,23 +717,10 @@ BEGIN
 	res_array_sz = 2
 
     CNV_STR_INT(req_array[2], restart)
-    -- set stopping flag
-    SET_PORT_VAL(35, 101, 1, status)
-    IF status <> 0 THEN
-        res_array[1] = FAILED
-        res_array[2] = 'Failed to set stopping flag'
-        RETURN
-    ENDIF
     IF restart = 1 THEN
 	    RESTRT_LOOP(ret, err_msg)
     ELSE
         STOP_LOOP(ret, err_msg)
-    ENDIF
-    SET_PORT_VAL(35, 101, 0, status)
-    IF status <> 0 THEN
-        res_array[1] = FAILED
-        res_array[2] = 'Failed to reset stopping flag'
-        RETURN
     ENDIF
     IF ret = FALSE THEN
         res_array[1] = FAILED
@@ -904,6 +925,7 @@ VAR
     status:             INTEGER
     entry:              INTEGER
     tool_frm:         INTEGER
+    default_frm:    XYZWPREXT
 BEGIN
 
     res_array_sz = 2
@@ -916,11 +938,17 @@ BEGIN
         RETURN
     ENDIF
     
-    GET_VAR(entry, '*SYSTEM*', '$MNUTOOL[1, ' + req_array[2] + ']', $UTOOL, status)
-    IF status <> 0 THEN
-        res_array[1] = FAILED 
-        res_array[2] = 'Failed to set $MNUTOOL [' + req_array[2] +']'
-        RETURN
+    -- only check if the frame is not the default frame
+    IF tool_frm = 0 THEN
+    	    GET_DFLT_FRM(default_frm)
+    	    $UTOOL = default_frm
+    ELSE
+	    GET_VAR(entry, '*SYSTEM*', '$MNUTOOL[1, ' + req_array[2] + ']', $UTOOL, status)
+	    IF status <> 0 THEN
+	        res_array[1] = FAILED 
+	        res_array[2] = 'Failed to set $MNUTOOL [' + req_array[2] +']'
+	        RETURN
+	    ENDIF
     ENDIF
 
     res_array[1] = SUCCESS 
@@ -952,24 +980,31 @@ ROUTINE SET_WORK_FRM(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_arra
 VAR
     status:             INTEGER
     entry:              INTEGER
-    tool_frm:         INTEGER
+    work_frm:         INTEGER
+    default_frm:     XYZWPREXT
 BEGIN
 
     res_array_sz = 2
 
-    CNV_STR_INT(req_array[2], tool_frm)
-    SET_VAR(entry, '*SYSTEM*', '$MNUFRAMENUM[1]', tool_frm, status)
+    CNV_STR_INT(req_array[2], work_frm)
+    SET_VAR(entry, '*SYSTEM*', '$MNUFRAMENUM[1]', work_frm, status)
         IF status <> 0 THEN
         res_array[1] = FAILED 
         res_array[2] = 'Failed to set $MNUFRAMENUM [' + req_array[2] +']'
         RETURN
     ENDIF
     
-    GET_VAR(entry, '*SYSTEM*', '$MNUFRAME[1, ' + req_array[2] + ']', $UFRAME, status)
-    IF status <> 0 THEN
-        res_array[1] = FAILED 
-        res_array[2] = 'Failed to set $MNUFRAME [' + req_array[2] +']'
-        RETURN
+    -- only check if the frame is not the default frame
+    IF work_frm = 0 THEN
+    	GET_DFLT_FRM(default_frm)
+    	$UFRAME = default_frm
+    ELSE
+	    GET_VAR(entry, '*SYSTEM*', '$MNUFRAME[1, ' + req_array[2] + ']', $UFRAME, status)
+	    IF status <> 0 THEN
+	        res_array[1] = FAILED 
+	        res_array[2] = 'Failed to set $MNUFRAME [' + req_array[2] +']'
+	        RETURN
+	    ENDIF
     ENDIF
 
     res_array[1] = SUCCESS 
@@ -1437,7 +1472,7 @@ BEGIN
 
     GET_TSK_INFO('EUREKA_MOVE_LOOP', 0, TSK_STATUS, prog_status, value_str, status)
     GET_PORT_VAL(35, 101, value, status)
-    -- if stopping flag is set, then still set the status to running
+    -- if restarting flag is set, then still set the status to running
     IF (status = 0) AND ((prog_status = 0) OR (value = 1)) THEN
     	cur_rbt_sts = cur_rbt_sts OR IS_LOOP_RUN
     ENDIF

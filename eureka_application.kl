@@ -12,7 +12,6 @@ BEGIN
     req_array_sz = 0
     rem_str_buf = req
     rem_str_len = STR_LEN(req)
-    WRITE('req:', req, CR)
     WHILE rem_str_len <> 0 DO
         req_array_sz = req_array_sz + 1
         stop_index = INDEX(rem_str_buf, delimiter)
@@ -24,7 +23,6 @@ BEGIN
         req_array[req_array_sz] = SUB_STR(rem_str_buf, 1, sub_str_len)
         rem_str_len = rem_str_len - stop_index
         rem_str_buf = SUB_STR(rem_str_buf, stop_index + 1, rem_str_len)
-        -- WRITE('string buffer left ', rem_str_buf, CR)
     ENDWHILE
     
 END BREAKDWN_REQ
@@ -64,9 +62,6 @@ BEGIN
     CNV_STR_REAL(in_pos_str[4], out_pose_xyz.w)
     CNV_STR_REAL(in_pos_str[5], out_pose_xyz.p)
     CNV_STR_REAL(in_pos_str[6], out_pose_xyz.r)
-    
-    
-    WRITE('Config string is: ', conf_str, CR)
     CNV_STR_CONF(conf_str, out_pose_xyz.config_data, status)
     IF status <> 0 THEN
         err_str = 'Frame Pose config invalid format'
@@ -373,6 +368,12 @@ BEGIN
             res_array[2] = 'Invalid motion type'
             RETURN
     ENDSELECT
+    SET_REAL_REG(81, velocity, status)
+    IF status <> 0 THEN
+        res_array[1] = FAILED
+        res_array[2] = 'Failed to store velocity value in R[81]'
+        RETURN
+    ENDIF
 
     WRITE('Processing pass_start :', req_array[5], CR);
     -- Get pass_start value and put it to R[83]
@@ -486,7 +487,6 @@ VAR
     status:                 INTEGER
     ret:                    BOOLEAN
     err_msg:                STRING[64]
-    i:				INTEGER
 BEGIN
     res_array_sz = 2
 
@@ -498,17 +498,12 @@ BEGIN
         RETURN
     ENDIF
 
-    --FOR i=1 TO ARRAY_LEN(req_array) DO 
-    --	WRITE('request array at idx ', i, ' :',  req_array[i], CR)
-    -- ENDFOR
     ret = BKD_RBT_POSE(req_array[3], req_array[6], in_pos, err_msg)
     IF ret = FALSE THEN
         res_array[1] = FAILED 
         res_array[2] = err_msg
         RETURN
     ENDIF
-    
-    WRITE('Moving to pose: ', in_pos, CR)
 
     WRITE('Testing reachability', CR)
     CHECK_EPOS((in_pos), $UFRAME, $UTOOL, status)

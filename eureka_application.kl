@@ -12,6 +12,7 @@ BEGIN
     req_array_sz = 0
     rem_str_buf = req
     rem_str_len = STR_LEN(req)
+    WRITE('req:', req, CR)
     WHILE rem_str_len <> 0 DO
         req_array_sz = req_array_sz + 1
         stop_index = INDEX(rem_str_buf, delimiter)
@@ -23,7 +24,7 @@ BEGIN
         req_array[req_array_sz] = SUB_STR(rem_str_buf, 1, sub_str_len)
         rem_str_len = rem_str_len - stop_index
         rem_str_buf = SUB_STR(rem_str_buf, stop_index + 1, rem_str_len)
-        WRITE('string bufferr left: ', rem_str_buf, CR)
+        -- WRITE('string buffer left ', rem_str_buf, CR)
     ENDWHILE
     
 END BREAKDWN_REQ

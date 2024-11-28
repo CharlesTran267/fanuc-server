@@ -498,9 +498,9 @@ BEGIN
         RETURN
     ENDIF
 
-    FOR i=1 TO ARRAY_LEN(req_array) DO 
-    	WRITE('request array at idx ', i, ' :',  req_array[i], CR)
-    ENDFOR
+    --FOR i=1 TO ARRAY_LEN(req_array) DO 
+    --	WRITE('request array at idx ', i, ' :',  req_array[i], CR)
+    -- ENDFOR
     ret = BKD_RBT_POSE(req_array[3], req_array[6], in_pos, err_msg)
     IF ret = FALSE THEN
         res_array[1] = FAILED 

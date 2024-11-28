@@ -64,7 +64,7 @@ BEGIN
     CNV_STR_REAL(in_pos_str[6], out_pose_xyz.r)
 
     IF conf_str = '' THEN
-	conf_str = DEFAULT_CFG
+	conf_str = 'N U T, 0, 0, 0'
     ENDIF
     
     WRITE('Config string is: ', conf_str, CR)

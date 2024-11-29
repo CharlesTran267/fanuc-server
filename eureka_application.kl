@@ -27,17 +27,55 @@ BEGIN
     
 END BREAKDWN_REQ
 
-ROUTINE GET_DFLT_FRM(default_pos:  XYZWPREXT) 
+ROUTINE GET_CUR_TL(tool_frm: POSITION) : BOOLEAN
 VAR
-	status:	INTEGER
+	status: 		INTEGER
+	frame_idx: 	INTEGER
+	entry:		INTEGER
+	idx_str:		STRING[4]
+	default_frm:	XYZWPREXT
 BEGIN
-	default_pos.x = 0
-	default_pos.y = 0
-	default_pos.z = 0
-	default_pos.w = 0
-	default_pos.p = 0
-	default_pos.r = 0
-END GET_DFLT_FRM
+	GET_VAR(entry, '*SYSTEM*', '$MNUTOOLNUM[1]', frame_idx, status)
+        IF status <> 0 THEN
+        	RETURN(FALSE)
+        ENDIF
+        
+        IF frame_idx = 0 THEN
+    	    tool_frm = $UTOOL
+        ELSE
+           CNV_INT_STR(frame_idx, 1, 0, idx_str)
+	    GET_VAR(entry, '*SYSTEM*', '$MNUTOOL[1, ' + idx_str + ']', tool_frm, status)
+	    IF status <> 0 THEN
+	        RETURN(FALSE)
+	    ENDIF
+        ENDIF
+        RETURN(TRUE)
+END GET_CUR_TL
+
+ROUTINE GET_CUR_WK(wk_frm: POSITION) : BOOLEAN
+VAR
+	status: 		INTEGER
+	frame_idx: 	INTEGER
+	entry:		INTEGER
+	idx_str:		STRING[4]
+	default_frm:	XYZWPREXT
+BEGIN
+	GET_VAR(entry, '*SYSTEM*', '$MNUFRAMENUM[1]', frame_idx, status)
+        IF status <> 0 THEN
+        	RETURN(FALSE)
+        ENDIF
+        
+        IF frame_idx = 0 THEN
+    	    wk_frm = $UFRAME
+        ELSE
+           CNV_INT_STR(frame_idx, 1, 0, idx_str)
+	    GET_VAR(entry, '*SYSTEM*', '$MNUFRAME[1, ' + idx_str + ']', wk_frm, status)
+	    IF status <> 0 THEN
+	        RETURN(FALSE)
+	    ENDIF
+        ENDIF
+        RETURN(TRUE)
+END GET_CUR_WK
 
 ROUTINE BKD_RBT_POSE(pose_str: STRING; conf_str: STRING; out_pose_xyz: XYZWPREXT; err_str: STRING) : BOOLEAN
 VAR
@@ -439,6 +477,9 @@ VAR
     status:                 INTEGER
     ret:                    BOOLEAN
     err_msg:                STRING[64]
+    
+    cur_tool_frm:	POSITION
+    cur_work_frm:	POSITION
 BEGIN
     res_array_sz = 2
 
@@ -457,9 +498,18 @@ BEGIN
     ENDIF
     
     WRITE('Testing reachability', CR)
+    IF GET_CUR_TL(cur_tool_frm) = FALSE THEN
+    	res_array[1] = FAILED
+    	res_array[2] = 'Failed to get current tool frame definition'
+    ENDIF
+    
+    IF GET_CUR_WK(cur_work_frm) = FALSE THEN
+    	res_array[1] = FAILED
+    	res_array[2] = 'Failed to get current work frame definition'
+    ENDIF
     -- Convert joint angles to a cartesian position
     -- Sanity check for reacability
-    JOINT2POS(joints, $UFRAME, $UTOOL, 0,
+    JOINT2POS(joints, cur_work_frm, cur_tool_frm, 0,
               out_pose, wjnt_cfg, ext_ang, status)
     IF status <> 0 THEN
         res_array[1] = FAILED
@@ -487,6 +537,9 @@ VAR
     status:                 INTEGER
     ret:                    BOOLEAN
     err_msg:                STRING[64]
+    
+    cur_tool_frm:	POSITION
+    cur_work_frm:	POSITION
 BEGIN
     res_array_sz = 2
 
@@ -506,7 +559,16 @@ BEGIN
     ENDIF
 
     WRITE('Testing reachability', CR)
-    CHECK_EPOS((in_pos), $UFRAME, $UTOOL, status)
+    IF GET_CUR_TL(cur_tool_frm) = FALSE THEN
+    	res_array[1] = FAILED
+    	res_array[2] = 'Failed to get current tool frame definition'
+    ENDIF
+    
+    IF GET_CUR_WK(cur_work_frm) = FALSE THEN
+    	res_array[1] = FAILED
+    	res_array[2] = 'Failed to get current work frame definition'
+    ENDIF
+    CHECK_EPOS((in_pos), cur_work_frm, cur_tool_frm, status)
     IF status <> 0 THEN
         res_array[1] = FAILED
         res_array[2] = 'Position is not reachable'
@@ -796,9 +858,10 @@ VAR
 
     ret:                    BOOLEAN
     err_msg:                STRING[64]
-
+    
+    cur_tool_frm:	POSITION
+    cur_work_frm:  POSITION
 BEGIN
-
     res_array_sz = 2
 
     ret = BKD_JOINT(req_array[2], joints, err_msg)
@@ -809,8 +872,17 @@ BEGIN
     ENDIF
 
     WRITE('Running JOINT2POS', CR)
+    IF GET_CUR_TL(cur_tool_frm) = FALSE THEN
+    	res_array[1] = FAILED
+    	res_array[2] = 'Failed to get current tool frame definition'
+    ENDIF
+    
+    IF GET_CUR_WK(cur_work_frm) = FALSE THEN
+    	res_array[1] = FAILED
+    	res_array[2] = 'Failed to get current work frame definition'
+    ENDIF
     -- Convert joint angles to a cartesian position
-    JOINT2POS(joints, $UFRAME, $UTOOL, 0,
+    JOINT2POS(joints, cur_work_frm, cur_tool_frm, 0,
               out_pose, wjnt_cfg, ext_ang, status)
     IF status <> 0 THEN
         res_array[1] = FAILED
@@ -827,7 +899,6 @@ BEGIN
     CNV_REAL_STR(cnv_pose.p, 10, 4, p)
     CNV_REAL_STR(cnv_pose.r, 10, 4, r)
     CNV_CNF_STRG(cnv_pose.config_data, cfg, 1)
-
 
     res_array_sz = 3
     res_array[1] = SUCCESS
@@ -852,6 +923,9 @@ VAR
     i:                  INTEGER
     err_msg:            STRING[64]
     ret:                BOOLEAN
+    
+    cur_tool_frm:	POSITION
+    cur_work_frm:	POSITION
 BEGIN
 
     res_array_sz = 2
@@ -863,12 +937,20 @@ BEGIN
         RETURN
     ENDIF
 
-
     ref_jnt = CURJPOS(0, 0)
 
     WRITE('Running POS2JOINT', CR)
+    IF GET_CUR_TL(cur_tool_frm) = FALSE THEN
+    	res_array[1] = FAILED
+    	res_array[2] = 'Failed to get current tool frame definition'
+    ENDIF
+    
+    IF GET_CUR_WK(cur_work_frm) = FALSE THEN
+    	res_array[1] = FAILED
+    	res_array[2] = 'Failed to get current work frame definition'
+    ENDIF
     -- Convert joint angles to a cartesian position
-    POS2JOINT(ref_jnt, (in_pos), $UFRAME, $UTOOL, 0,
+    POS2JOINT(ref_jnt, (in_pos), cur_work_frm, cur_tool_frm, 0,
               wjnt_cfg, ext_ang, out_jnt, status)
     IF status <> 0 THEN
         res_array[1] = FAILED
@@ -935,19 +1017,6 @@ BEGIN
         res_array[2] = 'Failed to set $MNUTOOLNUM[1]'
         RETURN
     ENDIF
-    
-    -- only check if the frame is not the default frame
-    IF tool_frm = 0 THEN
-    	    GET_DFLT_FRM(default_frm)
-    	    $UTOOL = default_frm
-    ELSE
-	    GET_VAR(entry, '*SYSTEM*', '$MNUTOOL[1, ' + req_array[2] + ']', $UTOOL, status)
-	    IF status <> 0 THEN
-	        res_array[1] = FAILED 
-	        res_array[2] = 'Failed to set $MNUTOOL [' + req_array[2] +']'
-	        RETURN
-	    ENDIF
-    ENDIF
 
     res_array[1] = SUCCESS 
     res_array[2] = 'Success to set frame [' + req_array[2] +']'
@@ -990,19 +1059,6 @@ BEGIN
         res_array[1] = FAILED 
         res_array[2] = 'Failed to set $MNUFRAMENUM [' + req_array[2] +']'
         RETURN
-    ENDIF
-    
-    -- only check if the frame is not the default frame
-    IF work_frm = 0 THEN
-    	GET_DFLT_FRM(default_frm)
-    	$UFRAME = default_frm
-    ELSE
-	    GET_VAR(entry, '*SYSTEM*', '$MNUFRAME[1, ' + req_array[2] + ']', $UFRAME, status)
-	    IF status <> 0 THEN
-	        res_array[1] = FAILED 
-	        res_array[2] = 'Failed to set $MNUFRAME [' + req_array[2] +']'
-	        RETURN
-	    ENDIF
     ENDIF
 
     res_array[1] = SUCCESS 

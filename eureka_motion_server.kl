@@ -21,7 +21,7 @@ CONST
 	
 	SUCCESS = '0'
 	FAILED = '1'
-	
+
 %INCLUDE socket_server
 %INCLUDE eureka_application
 

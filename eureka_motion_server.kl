@@ -22,8 +22,6 @@ CONST
 	SUCCESS = '0'
 	FAILED = '1'
 	
-	DEFAULT_CFG = 'N U T, 0 ,0 ,0'
-
 %INCLUDE socket_server
 %INCLUDE eureka_application
 

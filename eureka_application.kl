@@ -448,7 +448,7 @@ BEGIN
     ENDIF
 
     -- Wait for movement to start
-    timeout = 10000
+    CNV_STR_INT(req_array[6], timeout)
     GET_PORT_VAL(2, 512, prog_status, status)
     WHILE (status = 0) AND (prog_status <> 0) AND (timeout > 0) DO
         GET_PORT_VAL(2, 512, prog_status, status)
@@ -551,7 +551,7 @@ BEGIN
         RETURN
     ENDIF
 
-    ret = BKD_RBT_POSE(req_array[3], req_array[6], in_pos, err_msg)
+    ret = BKD_RBT_POSE(req_array[3], req_array[7], in_pos, err_msg)
     IF ret = FALSE THEN
         res_array[1] = FAILED 
         res_array[2] = err_msg
@@ -748,7 +748,7 @@ BEGIN
     ENDIF
 
     -- Wait for movement to start
-    timeout = 10000
+    CNV_STR_INT(req_array[5], timeout)
     GET_PORT_VAL(2, 512, prog_status, status)
     WHILE (status = 0) AND (prog_status <> 0) AND (timeout > 0) DO
         GET_PORT_VAL(2, 512, prog_status, status)

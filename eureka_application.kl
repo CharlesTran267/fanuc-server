@@ -33,7 +33,6 @@ VAR
 	frame_idx: 	INTEGER
 	entry:		INTEGER
 	idx_str:		STRING[4]
-	default_frm:	XYZWPREXT
 BEGIN
 	GET_VAR(entry, '*SYSTEM*', '$MNUTOOLNUM[1]', frame_idx, status)
         IF status <> 0 THEN
@@ -41,7 +40,7 @@ BEGIN
         ENDIF
         
         IF frame_idx = 0 THEN
-    	    tool_frm = $UTOOL
+    	    tool_frm = $MOR_GRP[1].$NILPOS
         ELSE
            CNV_INT_STR(frame_idx, 1, 0, idx_str)
 	    GET_VAR(entry, '*SYSTEM*', '$MNUTOOL[1, ' + idx_str + ']', tool_frm, status)
@@ -49,6 +48,7 @@ BEGIN
 	        RETURN(FALSE)
 	    ENDIF
         ENDIF
+        $UTOOL = tool_frm
         RETURN(TRUE)
 END GET_CUR_TL
 
@@ -58,7 +58,6 @@ VAR
 	frame_idx: 	INTEGER
 	entry:		INTEGER
 	idx_str:		STRING[4]
-	default_frm:	XYZWPREXT
 BEGIN
 	GET_VAR(entry, '*SYSTEM*', '$MNUFRAMENUM[1]', frame_idx, status)
         IF status <> 0 THEN
@@ -66,7 +65,7 @@ BEGIN
         ENDIF
         
         IF frame_idx = 0 THEN
-    	    wk_frm = $UFRAME
+    	    wk_frm = $MOR_GRP[1].$NILPOS
         ELSE
            CNV_INT_STR(frame_idx, 1, 0, idx_str)
 	    GET_VAR(entry, '*SYSTEM*', '$MNUFRAME[1, ' + idx_str + ']', wk_frm, status)
@@ -74,6 +73,7 @@ BEGIN
 	        RETURN(FALSE)
 	    ENDIF
         ENDIF
+        $UFRAME = wk_frm
         RETURN(TRUE)
 END GET_CUR_WK
 
@@ -1005,7 +1005,6 @@ VAR
     status:             INTEGER
     entry:              INTEGER
     tool_frm:         INTEGER
-    default_frm:    XYZWPREXT
 BEGIN
 
     res_array_sz = 2
@@ -1017,7 +1016,17 @@ BEGIN
         res_array[2] = 'Failed to set $MNUTOOLNUM[1]'
         RETURN
     ENDIF
-
+        
+    IF tool_frm = 0 THEN
+    	 $UTOOL = $MOR_GRP[1].$NILPOS
+    ELSE
+	 GET_VAR(entry, '*SYSTEM*', '$MNUTOOL[1, ' + req_array[2] + ']', $UTOOL, status)
+	 IF status <> 0 THEN
+		res_array[1] = FAILED
+		res_array[2] = 'Failed to current tool frame definition' 
+		RETURN
+	 ENDIF
+    ENDIF
     res_array[1] = SUCCESS 
     res_array[2] = 'Success to set frame [' + req_array[2] +']'
 
@@ -1048,7 +1057,6 @@ VAR
     status:             INTEGER
     entry:              INTEGER
     work_frm:         INTEGER
-    default_frm:     XYZWPREXT
 BEGIN
 
     res_array_sz = 2
@@ -1060,9 +1068,19 @@ BEGIN
         res_array[2] = 'Failed to set $MNUFRAMENUM [' + req_array[2] +']'
         RETURN
     ENDIF
-
+        
+    IF work_frm = 0 THEN
+    	 $UFRAME = $MOR_GRP[1].$NILPOS
+    ELSE
+	 GET_VAR(entry, '*SYSTEM*', '$MNUFRAME[1, ' + req_array[2] + ']', $UFRAME, status)
+	 IF status <> 0 THEN
+		res_array[1] = FAILED
+		res_array[2] = 'Failed to current work frame definition' 
+		RETURN
+	 ENDIF
+    ENDIF
     res_array[1] = SUCCESS 
-    res_array[2] = 'Success to set frame [' + req_array[2] +']'
+    res_array[2] = 'Success to set frame [' + req_array[2] +']'    
 END SET_WORK_FRM
 
 ROUTINE GET_TL_FRMDF(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)

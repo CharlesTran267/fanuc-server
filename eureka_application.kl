@@ -224,21 +224,89 @@ BEGIN
 
 END GET_RBT_POSE
 
-ROUTINE STRT_MV_LOOP(ret: BOOLEAN)
+ROUTINE IS_MV_LP_RUN(ret: BOOLEAN)
 VAR
     status:     INTEGER
+    prog_status:    INTEGER
+    value_str:  STRING[1]
 BEGIN
-    RUN_TASK('EUREKA_MOVE_LOOP', 1, FALSE, FALSE, 1, status)
-    ret = (status = 0)
-    -- Wait for motion loop to start
-    DELAY 100
+    GET_TSK_INFO('EUREKA_MOVE_LOOP', 0, TSK_STATUS, prog_status, value_str, status)
+    IF (status = 0 ) AND (prog_status = PG_RUNNING) THEN
+        ret = TRUE
+        RETURN
+    ENDIF
+    ret = FALSE
+END IS_MV_LP_RUN
+
+ROUTINE STRT_MV_LOOP(ret: BOOLEAN; err_msg: STRING)
+VAR
+    status:     INTEGER
+    timeout:  INTEGER
+BEGIN
+   	 RUN_TASK('EUREKA_MOVE_LOOP', 1, FALSE, FALSE, 1, status)
+	IF status <> 0 THEN
+		ret = FALSE
+		err_msg = 'Failed to start motion loop'
+		RETURN
+	ELSE
+		 -- Wait for motion loop to start
+		 timeout = 1000
+		IS_MV_LP_RUN(ret)
+		WHILE (ret = FALSE) AND (timeout > 0) DO
+			DELAY 10
+			IS_MV_LP_RUN(ret)
+			timeout = timeout -10
+		ENDWHILE
+		
+		IF ret = FALSE THEN
+			err_msg = 'Failed to start motion loop'
+			RETURN
+		ENDIF
+	ENDIF
+	ret = TRUE
+	err_msg = 'Successfully start motion loop'
 END STRT_MV_LOOP
+
+ROUTINE STOP_LOOP(ret: BOOLEAN; err_msg: STRING)
+VAR
+    status:     		INTEGER
+    timeout:		INTEGER
+    prog_status:	INTEGER
+    value_str:	STRING[1]
+BEGIN
+    ABORT_TASK('EUREKA_MOVE_LOOP', TRUE, TRUE, status)
+    IF status <> 0 THEN
+        ret = FALSE
+        err_msg = 'Failed to stop motion loop'
+        RETURN
+    ENDIF
+    timeout = 1000
+    -- wait for program to be aborted
+    GET_TSK_INFO('EUREKA_MOVE_LOOP', 0, TSK_STATUS, prog_status, value_str, status)
+    WHILE (status = 0) AND (prog_status <> PG_ABORTED) AND (timeout > 0) DO
+    	DELAY 10
+    	GET_TSK_INFO('EUREKA_MOVE_LOOP', 0, TSK_STATUS, prog_status, value_str, status)
+    	timeout = timeout -10
+    ENDWHILE
+    
+    IF prog_status <> PG_ABORTED THEN
+    	ret = FALSE
+    	err_msg = 'Failed to abort motion loop'
+    ELSE
+	ret = TRUE
+	err_msg = 'Stop motion loop successfully'
+    ENDIF
+END STOP_LOOP
 
 ROUTINE RESTRT_LOOP(ret: BOOLEAN; err_msg: STRING)
 VAR
     status:     INTEGER
     successful: BOOLEAN
+    n_retries:  INTEGER
 BEGIN
+    ret = TRUE
+    err_msg = 'Succesfully restart motion loop'
+    
     -- set restarting flag
     SET_PORT_VAL(35, 101, 1, status)
     IF status <> 0 THEN
@@ -246,19 +314,19 @@ BEGIN
         err_msg = 'Failed to set restarting flag'
         RETURN
     ENDIF
-    ABORT_TASK('EUREKA_MOVE_LOOP', TRUE, TRUE, status)
-    IF status <> 0 THEN
-        ret = FALSE
-        err_msg = 'Failed to stop motion loop'
-        RETURN
+    
+    STOP_LOOP(ret, err_msg)
+    IF ret = TRUE THEN
+    	-- Retry a few times as te program may not be able to start rigt after it is aborted
+    	n_retries = 10
+	STRT_MV_LOOP(ret, err_msg)
+	WHILE (ret = FALSE) AND (n_retries > 0) DO
+		DELAY 100
+		STRT_MV_LOOP(ret, err_msg)
+		n_retries = n_retries -1
+	ENDWHILE
     ENDIF
-    DELAY 500
-    RUN_TASK('EUREKA_MOVE_LOOP', 1, FALSE, FALSE, 1, status)
-    ret = (status = 0)
-    err_msg = 'Failed to restart motion loop'
-    -- Wait for motion loop to start
-    DELAY 100
-  
+    
     -- reset restarting flag
     SET_PORT_VAL(35, 101, 0, status)
     IF status <> 0 THEN
@@ -279,7 +347,7 @@ BEGIN
     -- Check if the motion loop is running
     res_array_sz = 2
     GET_TSK_INFO('EUREKA_MOVE_LOOP', 0, TSK_STATUS, prog_status, value_str, status)
-    IF (status = 0 ) AND (prog_status = 0) THEN
+    IF (status = 0 ) AND (prog_status = PG_RUNNING) THEN
         RESTRT_LOOP(ret, err_msg)
         IF ret = FALSE THEN
             res_array[1] = FAILED
@@ -291,30 +359,16 @@ BEGIN
         RETURN
     ENDIF
 
-    STRT_MV_LOOP(ret)
+    STRT_MV_LOOP(ret, err_msg)
     IF ret = FALSE THEN
         res_array[1] = FAILED
-        res_array[2] = 'Failed to start motion loop'
+        res_array[2] = err_msg
         RETURN
     ENDIF
 
     res_array[1] = SUCCESS
     res_array[2] = 'Start motion loop successfully'
 END STRT_MOTOR
-
-ROUTINE STOP_LOOP(ret: BOOLEAN; err_msg: STRING)
-VAR
-    status:     INTEGER
-BEGIN
-    ABORT_TASK('EUREKA_MOVE_LOOP', TRUE, TRUE, status)
-    IF status <> 0 THEN
-        ret = FALSE
-        err_msg = 'Failed to stop motion loop'
-        RETURN
-    ENDIF
-    ret = TRUE
-    err_msg = 'Stop motion loop successfully'
-END STOP_LOOP
 
 ROUTINE STOP_MOTOR(req_array_sz: INTEGER; req_array:	ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
 VAR
@@ -585,20 +639,6 @@ BEGIN
 
     STRT_MV(req_array, res_array)
 END MV_W_POSE
-
-ROUTINE IS_MV_LP_RUN(ret: BOOLEAN)
-VAR
-    status:     INTEGER
-    prog_status:    INTEGER
-    value_str:  STRING[1]
-BEGIN
-    GET_TSK_INFO('EUREKA_MOVE_LOOP', 0, TSK_STATUS, prog_status, value_str, status)
-    IF (status = 0 ) AND (prog_status = 0) THEN
-        ret = TRUE
-        RETURN
-    ENDIF
-    ret = FALSE
-END IS_MV_LP_RUN
 
 ROUTINE WAIT_RDY_NXT(req_array_sz: INTEGER; req_array: ARRAY OF STRING; res_array_sz: INTEGER; res_array: ARRAY OF STRING)
 VAR
@@ -1532,20 +1572,20 @@ BEGIN
     ENDIF
     
     GET_TSK_INFO('EUK_CNT_SRV', 0, TSK_STATUS, prog_status, value_str, status)
-    IF (status = 0) AND (prog_status = 0) THEN
+    IF (status = 0) AND (prog_status = PG_RUNNING) THEN
     	cur_rbt_sts = cur_rbt_sts OR IS_CNT_RUN
     ENDIF
     
     
     GET_TSK_INFO('EUK_MON_SRV', 0, TSK_STATUS, prog_status, value_str, status)
-    IF (status = 0) AND (prog_status = 0) THEN
+    IF (status = 0) AND (prog_status = PG_RUNNING) THEN
     	cur_rbt_sts = cur_rbt_sts OR IS_MON_RUN
     ENDIF
 
     GET_TSK_INFO('EUREKA_MOVE_LOOP', 0, TSK_STATUS, prog_status, value_str, status)
     GET_PORT_VAL(35, 101, value, status)
     -- if restarting flag is set, then still set the status to running
-    IF (status = 0) AND ((prog_status = 0) OR (value = 1)) THEN
+    IF (status = 0) AND ((prog_status = PG_RUNNING) OR (value = 1)) THEN
     	cur_rbt_sts = cur_rbt_sts OR IS_LOOP_RUN
     ENDIF
     
